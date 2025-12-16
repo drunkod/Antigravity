@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  antigravity:
+    image: nixos/nix:latest
+    container_name: antigravity
+    environment:
+      - DISPLAY=:99
+      - NIXPKGS_ALLOW_UNFREE=1
+    ports:
+      - "5999:5999"  # VNC
+      - "9092:9092"  # Cascade server
+      - "9101:9101"  # Monitoring
+      - "38107:38107" # Onboarding
+    volumes:
+      - .:/app
+      - antigravity-data:/home/user/.antigravity
+    working_dir: /app
+    command: >
+      bash -c "
+        echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf &&
+        nix-channel --update &&
+        nix-env -iA nixpkgs.tigervnc nixpkgs.fluxbox &&
+        Xvnc :99 -geometry 1920x1080 -depth 24 -SecurityTypes None -rfbport 5999 &
+        sleep 3 &&
+        DISPLAY=:99 fluxbox &
+        sleep 2 &&
+        DISPLAY=:99 nix run . --impure -- --disable-gpu --no-sandbox
+      "
+    restart: unless-stopped
+
+volumes:
+  antigravity-data:
