@@ -15,41 +15,19 @@
     in
     {
       packages.${system}.default = pkgs.stdenv.mkDerivation rec {
-        pname = "antigravity";
-        version = "1.11.17";
+        pname = "antigravity-wrapped";
+        version = pkgs.antigravity.version or "unknown";
 
-        src = pkgs.fetchurl {
-          url = "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/1.11.17-6639170008514560/linux-x64/Antigravity.tar.gz";
-          sha256 = "sha256-RUh4n14wrRPvNB7xEvOjmbLWsODMlee/WgYlsIpacSA=";
-        };
-
-        nativeBuildInputs = with pkgs; [
-          autoPatchelfHook
-          wrapGAppsHook3
-          makeWrapper
-        ];
-
-        buildInputs = with pkgs; [
-          stdenv.cc.cc.lib
-          alsa-lib atk cairo cups dbus expat fontconfig freetype
-          gdk-pixbuf glib gtk3 libdrm libnotify libpulseaudio
-          libuuid libxkbcommon xorg.libxkbfile mesa nspr nss pango
-          systemd xorg.libX11 xorg.libXScrnSaver xorg.libXcomposite
-          xorg.libXcursor xorg.libXdamage xorg.libXext xorg.libXfixes
-          xorg.libXi xorg.libXrandr xorg.libXrender xorg.libXtst
-          xorg.libxcb xorg.libxshmfence
-        ];
-
-        sourceRoot = "Antigravity";
+        dontUnpack = true;
         dontBuild = true;
         dontConfigure = true;
 
+        nativeBuildInputs = with pkgs; [
+          makeWrapper
+        ];
+
         installPhase = ''
           runHook preInstall
-
-          mkdir -p $out/lib/antigravity
-          cp -r . $out/lib/antigravity/
-          chmod +x $out/lib/antigravity/antigravity
 
           mkdir -p $out/bin
 
@@ -110,7 +88,7 @@ EOF
           ln -sf ${pkgs.git}/bin/git $out/bin/git
 
           # Main wrapper with environment fixes
-          makeWrapper $out/lib/antigravity/antigravity $out/bin/antigravity \
+          makeWrapper ${pkgs.antigravity}/bin/antigravity $out/bin/antigravity \
             --prefix PATH : "$out/bin:${pkgs.git}/bin" \
             --set-default CHROME_PATH "$out/bin/google-chrome" \
             --set-default CHROME_EXECUTABLE "$out/bin/google-chrome" \
