@@ -2,6 +2,7 @@
 
 PID_FILE="$HOME/.antigravity-vnc.pid"
 LOG_FILE="$HOME/.antigravity-vnc.log"
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
 
 echo "============================================"
 echo "📊 Antigravity VNC Status"
@@ -32,7 +33,7 @@ echo "📦 VNC Services:"
 check_running "Xvnc       " "Xvnc :99"
 check_running "Fluxbox    " "fluxbox"
 check_running "websockify " "websockify.*5999"
-check_running "DBus       " "dbus-daemon.*xdg-runtime"
+check_running "DBus (ours)" "dbus-daemon.*$XDG_RUNTIME_DIR"
 echo ""
 
 # Show PID file info if it exists
@@ -41,6 +42,21 @@ if [ -f "$PID_FILE" ]; then
     echo "📄 PID File Contents:"
     echo "   VNC: $VNC_PID | Fluxbox: $FLUXBOX_PID | websockify: $WEBSOCKIFY_PID"
     echo "   App: $APP_PID | DBus: ${DBUS_PID:-N/A}"
+
+    # Check if PIDs are still valid
+    echo ""
+    echo "📋 PID Status:"
+    for name_pid in "VNC:$VNC_PID" "Fluxbox:$FLUXBOX_PID" "websockify:$WEBSOCKIFY_PID" "App:$APP_PID" "DBus:$DBUS_PID"; do
+        name="${name_pid%%:*}"
+        pid="${name_pid##*:}"
+        if [ -n "$pid" ] && [ "$pid" != "" ]; then
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "   ✅ $name ($pid) - alive"
+            else
+                echo "   💀 $name ($pid) - dead"
+            fi
+        fi
+    done
     echo ""
 fi
 

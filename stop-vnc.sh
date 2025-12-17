@@ -2,6 +2,7 @@
 
 PID_FILE="$HOME/.antigravity-vnc.pid"
 LOCK_FILE="$HOME/.antigravity-vnc.lock"
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
 
 echo "🧹 Stopping Antigravity VNC services..."
 
@@ -43,7 +44,7 @@ fi
 # 3. FALLBACK: Kill by process name (in case PID file is missing/stale)
 echo "   Checking for remaining processes..."
 
-# Kill websockify
+# Kill websockify on port 5999
 WEBSOCKIFY_PIDS=$(pgrep -f "websockify.*5999" || true)
 if [ -n "$WEBSOCKIFY_PIDS" ]; then
     echo "   Stopping websockify (PIDs: $WEBSOCKIFY_PIDS)"
@@ -57,18 +58,22 @@ if [ -n "$FLUXBOX_PIDS" ]; then
     pkill -9 fluxbox 2>/dev/null || true
 fi
 
-# Kill Xvnc
-XVNC_PIDS=$(pgrep Xvnc || true)
+# Kill Xvnc on display :99
+XVNC_PIDS=$(pgrep -f "Xvnc :99" || true)
 if [ -n "$XVNC_PIDS" ]; then
     echo "   Stopping Xvnc (PIDs: $XVNC_PIDS)"
-    pkill -9 Xvnc 2>/dev/null || true
+    pkill -9 -f "Xvnc :99" 2>/dev/null || true
 fi
 
-# Kill DBus (be careful - only kill session bus we started)
-if [ -n "${DBUS_PID:-}" ] && kill -0 "$DBUS_PID" 2>/dev/null; then
-    echo "   Stopping DBus (PID $DBUS_PID)"
-    kill -9 "$DBUS_PID" 2>/dev/null || true
+# Kill ALL DBus daemons using our XDG_RUNTIME_DIR
+DBUS_PIDS=$(pgrep -f "dbus-daemon.*$XDG_RUNTIME_DIR" || true)
+if [ -n "$DBUS_PIDS" ]; then
+    echo "   Stopping DBus daemons (PIDs: $DBUS_PIDS)"
+    pkill -9 -f "dbus-daemon.*$XDG_RUNTIME_DIR" 2>/dev/null || true
 fi
+
+# Cleanup DBus socket
+rm -f "$XDG_RUNTIME_DIR/bus" 2>/dev/null || true
 
 # Cleanup files
 rm -f "$PID_FILE" "$LOCK_FILE"
@@ -95,14 +100,15 @@ check_process() {
 ALL_STOPPED=true
 
 check_process "Antigravity" "antigravity" || ALL_STOPPED=false
-check_process "websockify " "websockify" || ALL_STOPPED=false
+check_process "websockify " "websockify.*5999" || ALL_STOPPED=false
 check_process "Fluxbox    " "fluxbox" || ALL_STOPPED=false
-check_process "Xvnc       " "Xvnc" || ALL_STOPPED=false
+check_process "Xvnc       " "Xvnc :99" || ALL_STOPPED=false
+check_process "DBus       " "dbus-daemon.*$XDG_RUNTIME_DIR" || ALL_STOPPED=false
 
 echo ""
 if [ "$ALL_STOPPED" = true ]; then
     echo "✅ All services stopped successfully"
 else
     echo "⚠️  Some services are still running"
-    echo "   Run: ps aux | grep -E '(antigravity|websockify|fluxbox|Xvnc)'"
+    echo "   Try: ./kill-all.sh"
 fi
