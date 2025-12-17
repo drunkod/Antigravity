@@ -15,12 +15,40 @@ echo "============================================"
 echo "🛠️  Configuring Fonts..."
 export FONTCONFIG_FILE=$(nix-build --no-out-link -E 'with import <nixpkgs> {}; makeFontsConf { fontDirectories = [ dejavu_fonts liberation_ttf noto-fonts ]; }')
 
-# ===== FIX 1: Start DBus session =====
+# ===== FIX 1: Start DBus session (container-safe) =====
 echo "🔌 Starting DBus session..."
-if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-    eval $(dbus-launch --sh-syntax)
-    export DBUS_SESSION_BUS_ADDRESS
-    echo "   DBus started: $DBUS_SESSION_BUS_ADDRESS"
+
+# Create a per-user runtime dir (needed for dbus socket + machine-id)
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+# Provide a local machine-id so dbus doesn't look for /etc/machine-id
+export DBUS_MACHINE_UUID_FILE="$XDG_RUNTIME_DIR/machine-id"
+dbus-uuidgen --ensure="$DBUS_MACHINE_UUID_FILE" >/dev/null
+
+# Use the session.conf shipped with the nix dbus package (not /etc/dbus-1/session.conf)
+DBUS_DAEMON="$(command -v dbus-daemon || true)"
+if [ -z "$DBUS_DAEMON" ]; then
+  echo "❌ dbus-daemon not found in PATH"
+else
+  DBUS_PREFIX="$(dirname "$(dirname "$(readlink -f "$DBUS_DAEMON")")")"
+  DBUS_SESSION_CONF="$DBUS_PREFIX/share/dbus-1/session.conf"
+
+  if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    # Start dbus-daemon explicitly and capture its address + pid
+    mapfile -t _dbus_out < <(
+      dbus-daemon --session \
+        --config-file="$DBUS_SESSION_CONF" \
+        --address="unix:path=$XDG_RUNTIME_DIR/bus" \
+        --fork --print-address=1 --print-pid=1
+    )
+    export DBUS_SESSION_BUS_ADDRESS="${_dbus_out[0]}"
+    DBUS_PID="${_dbus_out[1]}"
+    echo "   DBus started: $DBUS_SESSION_BUS_ADDRESS (pid $DBUS_PID)"
+  else
+    echo "   DBus already set: $DBUS_SESSION_BUS_ADDRESS"
+  fi
 fi
 
 # ===== FIX 2: Disable Vulkan/GPU features =====
@@ -80,7 +108,7 @@ echo "Press Ctrl+C to stop."
 # Cleanup
 cleanup() {
     echo "🧹 Stopping..."
-    kill $APP_PID $WEBSOCKIFY_PID $VNC_PID 2>/dev/null
+    kill ${APP_PID:-} ${WEBSOCKIFY_PID:-} ${VNC_PID:-} ${DBUS_PID:-} 2>/dev/null
 }
 trap cleanup EXIT INT TERM
 
