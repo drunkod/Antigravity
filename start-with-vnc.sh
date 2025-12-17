@@ -105,7 +105,10 @@ LOG="$HOME/antigravity-electron.log"
 rm -f "$LOG"
 export ELECTRON_ENABLE_LOGGING=1
 export ELECTRON_OZONE_PLATFORM_HINT=x11
-DISPLAY=:$DISPLAY_NUM ./result/bin/antigravity 2>&1 | tee -a "$LOG" &
+export NIXOS_OZONE_WL=0
+DISPLAY=:$DISPLAY_NUM ./result/bin/antigravity \
+  --enable-logging=stderr --v=1 \
+  2>&1 | tee -a "$LOG" &
 APP_PID=$!
 
 echo ""

@@ -42,7 +42,9 @@
             wrapProgram $out/bin/antigravity \
               --prefix PATH : "${pkgs.lib.makeBinPath terminalDeps}:$out/bin" \
               --set-default SHELL "${pkgs.bashInteractive}/bin/bash" \
+              --set NIXOS_OZONE_WL "0" \
               --set ELECTRON_OZONE_PLATFORM_HINT "x11" \
+              --set GDK_BACKEND "x11" \
               --set LIBGL_ALWAYS_SOFTWARE "1" \
               --set VK_ICD_FILENAMES "" \
               --set LIBVA_DRIVER_NAME "null" \
@@ -51,7 +53,7 @@
               --unset XDG_CURRENT_DESKTOP \
               --unset DESKTOP_SESSION \
               --unset GIO_LAUNCHED_DESKTOP_FILE_PID \
-              --add-flags "--no-sandbox --disable-dev-shm-usage"
+              --add-flags "--no-sandbox --disable-dev-shm-usage --ozone-platform=x11 --enable-features=UseOzonePlatform --disable-gpu --use-gl=swiftshader"
           '';
 
           meta = pkgs.antigravity.meta // {
