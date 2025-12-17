@@ -23,6 +23,9 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
+# Remove stale socket if previous run crashed
+rm -f "$XDG_RUNTIME_DIR/bus" || true
+
 # Provide a local machine-id so dbus doesn't look for /etc/machine-id
 export DBUS_MACHINE_UUID_FILE="$XDG_RUNTIME_DIR/machine-id"
 dbus-uuidgen --ensure="$DBUS_MACHINE_UUID_FILE" >/dev/null
@@ -38,14 +41,14 @@ else
   if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
     # Start dbus-daemon explicitly and capture its address + pid
     mapfile -t _dbus_out < <(
-      dbus-daemon --session \
+      dbus-daemon \
         --config-file="$DBUS_SESSION_CONF" \
         --address="unix:path=$XDG_RUNTIME_DIR/bus" \
         --fork --print-address=1 --print-pid=1
     )
     export DBUS_SESSION_BUS_ADDRESS="${_dbus_out[0]}"
     DBUS_PID="${_dbus_out[1]}"
-    echo "   DBus started: $DBUS_SESSION_BUS_ADDRESS (pid $DBUS_PID)"
+    echo "   DBus started: ${DBUS_SESSION_BUS_ADDRESS:-<empty>} (pid ${DBUS_PID:-<empty>})"
   else
     echo "   DBus already set: $DBUS_SESSION_BUS_ADDRESS"
   fi
