@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus xdotool xorg.xdpyinfo
+#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus xdotool xorg.xdpyinfo strace
 
 export DISPLAY_NUM=${DISPLAY_NUM:-99}
 VNC_PORT=$((5900 + DISPLAY_NUM - 99))
@@ -51,9 +51,8 @@ export GALLIUM_DRIVER=llvmpipe
 export __EGL_VENDOR_LIBRARY_FILENAMES=""
 export LIBGL_ALWAYS_SOFTWARE=1
 
-# Electron crash dumps
+# Electron logging
 export ELECTRON_ENABLE_LOGGING=1
-export ELECTRON_LOG_FILE="$HOME/electron.log"
 
 # noVNC
 if [ ! -d ~/noVNC ]; then
@@ -65,7 +64,6 @@ Xvnc :$DISPLAY_NUM -geometry 1920x1080 -depth 24 -SecurityTypes None -rfbport $V
 VNC_PID=$!
 sleep 3
 
-# Verify X server is working
 echo "🔍 Checking X server..."
 if xdpyinfo -display :$DISPLAY_NUM >/dev/null 2>&1; then
     echo "   ✅ X server responding on :$DISPLAY_NUM"
@@ -91,56 +89,66 @@ echo "📺 https://$WEB_PORT-firebase-antigravity-1763533608633.cluster-iusnsmyw
 echo "============================================"
 echo ""
 
-# Build
-echo "🔨 Building Antigravity..."
 cd ~/antigravity
-nix build . --impure
+
+# First, let's try UNWRAPPED nixpkgs antigravity directly
+echo "🔬 TEST 1: Running UNWRAPPED nixpkgs antigravity..."
+echo "=================================================="
+
+# Get the unwrapped binary path
+UNWRAPPED=$(nix-build '<nixpkgs>' -A antigravity --no-out-link 2>/dev/null)
+echo "Unwrapped path: $UNWRAPPED"
 
 echo ""
-echo "🚀 Launching Antigravity with extended logging..."
-echo ""
-
-# Create crash dump directory
-mkdir -p "$HOME/.config/antigravity/Crashpad"
-
-# Launch with explicit environment dump
-env | grep -E '^(DISPLAY|DBUS|XDG|ELECTRON|LIBGL|MESA|VK_|GDK)' | sort
+echo "Running with minimal flags..."
+timeout 10 $UNWRAPPED/bin/antigravity --no-sandbox 2>&1 || true
 
 echo ""
-echo "--- Starting app ---"
+echo "=================================================="
+echo "🔬 TEST 2: Running with strace to see exit reason..."
+echo "=================================================="
 
-DISPLAY=:$DISPLAY_NUM ./result/bin/antigravity \
-  --enable-logging \
-  --log-level=0 \
-  --v=2 \
-  2>&1 &
-APP_PID=$!
-
-echo "🎮 App PID: $APP_PID"
-
-# Wait a bit and check if still running
-sleep 5
-if kill -0 $APP_PID 2>/dev/null; then
-    echo "✅ App still running after 5 seconds"
-    
-    # Check for windows
-    echo "🔍 Checking for app windows..."
-    DISPLAY=:$DISPLAY_NUM xdotool search --name "." 2>/dev/null | head -5 || echo "   No windows found yet"
-else
-    echo "❌ App exited within 5 seconds"
-    echo ""
-    echo "📋 Checking for crash info..."
-    ls -la "$HOME/.config/antigravity/" 2>/dev/null || true
-    ls -la "$HOME/.config/antigravity/Crashpad/" 2>/dev/null || true
-fi
+# Strace to see what happens at exit
+timeout 15 strace -f -e trace=write,exit_group -s 200 \
+    $UNWRAPPED/bin/antigravity --no-sandbox 2>&1 | tail -50 || true
 
 echo ""
-echo "Press Ctrl+C to stop."
+echo "=================================================="
+echo "🔬 TEST 3: Check if it needs a specific working directory..."
+echo "=================================================="
+
+# Maybe it needs to run from a specific directory?
+cd $UNWRAPPED
+timeout 10 ./bin/antigravity --no-sandbox 2>&1 || true
+cd ~/antigravity
+
+echo ""
+echo "=================================================="
+echo "🔬 TEST 4: Try with explicit home/config dirs..."
+echo "=================================================="
+
+mkdir -p "$HOME/.config/Antigravity"
+mkdir -p "$HOME/.local/share/Antigravity"
+
+export HOME="$HOME"
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+
+timeout 10 $UNWRAPPED/bin/antigravity --no-sandbox 2>&1 || true
+
+echo ""
+echo "🔍 Checking for any config files created..."
+find "$HOME/.config" -name "*ntigravity*" -o -name "*ntigravity*" 2>/dev/null | head -20
+find "$HOME/.local" -name "*ntigravity*" -o -name "*ntigravity*" 2>/dev/null | head -20
+
+echo ""
+echo "Press Ctrl+C to exit."
 
 cleanup() {
     echo "🧹 Stopping..."
-    kill ${APP_PID:-} ${WEBSOCKIFY_PID:-} ${VNC_PID:-} ${DBUS_PID:-} 2>/dev/null
+    kill ${WEBSOCKIFY_PID:-} ${VNC_PID:-} ${DBUS_PID:-} 2>/dev/null
 }
 trap cleanup EXIT INT TERM
 
-wait $APP_PID
+# Keep alive
+sleep infinity
