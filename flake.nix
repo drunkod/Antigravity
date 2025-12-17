@@ -26,10 +26,29 @@
           makeWrapper
         ];
 
+        # Terminal dependencies
+        terminalDeps = with pkgs; [
+          bashInteractive
+          coreutils
+          gnugrep
+          gnused
+          findutils
+          procps
+          which
+        ];
+
         installPhase = ''
           runHook preInstall
 
           mkdir -p $out/bin
+
+          # Terminal binaries
+          ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/bash
+          ln -sf ${pkgs.bashInteractive}/bin/sh $out/bin/sh
+
+          # Copy settings.json for VSCode
+          mkdir -p $out/lib/antigravity/data/user-data/User
+          cp ${./settings.json} $out/lib/antigravity/data/user-data/User/settings.json
 
           # Chrome wrapper with ALL crash-prevention flags
           cat > $out/bin/google-chrome <<'EOF'
@@ -89,11 +108,12 @@ EOF
 
           # Main wrapper with environment fixes
           makeWrapper ${pkgs.antigravity}/bin/antigravity $out/bin/antigravity \
-            --prefix PATH : "$out/bin:${pkgs.git}/bin" \
+            --prefix PATH : "$out/bin:${pkgs.git}/bin:${pkgs.bashInteractive}/bin:${pkgs.coreutils}/bin:${pkgs.procps}/bin" \
             --set-default CHROME_PATH "$out/bin/google-chrome" \
             --set-default CHROME_EXECUTABLE "$out/bin/google-chrome" \
             --set-default CHROME_BIN "$out/bin/google-chrome" \
             --set-default BROWSER "$out/bin/google-chrome" \
+            --set-default SHELL "${pkgs.bashInteractive}/bin/bash" \
             --set VK_ICD_FILENAMES "" \
             --set LIBVA_DRIVER_NAME "null" \
             --set MESA_LOADER_DRIVER_OVERRIDE "swrast" \

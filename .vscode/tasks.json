@@ -1,0 +1,20 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Rebuild Antigravity",
+      "type": "shell",
+      "command": "nix build . --impure",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Start VNC",
+      "type": "shell",
+      "command": "./start-with-vnc.sh",
+      "group": "none",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}
