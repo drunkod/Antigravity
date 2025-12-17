@@ -40,13 +40,7 @@
             wrapProgram $out/bin/antigravity \
               --prefix PATH : "${pkgs.lib.makeBinPath terminalDeps}:$out/bin" \
               --set-default SHELL "${pkgs.bashInteractive}/bin/bash" \
-              --set DISPLAY ":99" \
-              --set ELECTRON_OZONE_PLATFORM_HINT "x11" \
-              --set GDK_BACKEND "x11" \
-              --set LIBGL_ALWAYS_SOFTWARE "1" \
-              --set MESA_LOADER_DRIVER_OVERRIDE "swrast" \
-              --set GALLIUM_DRIVER "llvmpipe" \
-              --add-flags "--no-sandbox --disable-gpu --in-process-gpu"
+              --add-flags "--no-sandbox"
           '';
 
           meta = pkgs.antigravity.meta // {
