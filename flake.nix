@@ -40,7 +40,7 @@
             wrapProgram $out/bin/antigravity \
               --prefix PATH : "${pkgs.lib.makeBinPath terminalDeps}:$out/bin" \
               --set-default SHELL "${pkgs.bashInteractive}/bin/bash" \
-              --add-flags "--no-sandbox"
+              --add-flags "--no-sandbox --single-process --no-zygote"
           '';
 
           meta = pkgs.antigravity.meta // {
