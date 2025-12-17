@@ -101,7 +101,11 @@ echo "🔍 DEBUG: DBus address = $DBUS_SESSION_BUS_ADDRESS"
 echo ""
 
 echo "🚀 Launching Antigravity..."
-DISPLAY=:$DISPLAY_NUM ./result/bin/antigravity 2>&1 &
+LOG="$HOME/antigravity-electron.log"
+rm -f "$LOG"
+export ELECTRON_ENABLE_LOGGING=1
+export ELECTRON_OZONE_PLATFORM_HINT=x11
+DISPLAY=:$DISPLAY_NUM ./result/bin/antigravity 2>&1 | tee -a "$LOG" &
 APP_PID=$!
 
 echo ""

@@ -51,7 +51,7 @@
               --unset XDG_CURRENT_DESKTOP \
               --unset DESKTOP_SESSION \
               --unset GIO_LAUNCHED_DESKTOP_FILE_PID \
-              --add-flags "--no-sandbox --disable-gpu --disable-vulkan --disable-dev-shm-usage --ozone-platform=x11 --enable-features=UseOzonePlatform --use-gl=swiftshader"
+              --add-flags "--no-sandbox --disable-dev-shm-usage"
           '';
 
           meta = pkgs.antigravity.meta // {
