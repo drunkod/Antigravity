@@ -9,7 +9,7 @@
     pkgs.fluxbox
     pkgs.python312Packages.websockify
     pkgs.novnc
-    # pkgs.antigravity
+    pkgs.antigravity
     # pkgs.python311
     # pkgs.python311Packages.pip
     # pkgs.nodejs_20

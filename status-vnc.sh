@@ -8,45 +8,42 @@ echo "📊 Antigravity VNC Status"
 echo "============================================"
 echo ""
 
-# Check all antigravity processes
-ANTIGRAVITY_PIDS=$(pgrep -f "antigravity" || true)
-if [ -n "$ANTIGRAVITY_PIDS" ]; then
-    echo "🎮 Antigravity Processes:"
-    pgrep -af "antigravity" | sed 's/^/   /'
-    PROCESS_COUNT=$(echo "$ANTIGRAVITY_PIDS" | wc -l)
-    echo "   Total: $PROCESS_COUNT processes"
+# Check all relevant processes
+check_running() {
+    local name="$1"
+    local pattern="$2"
+    local pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+
+    if [ -n "$pids" ]; then
+        echo "✅ $name: running"
+        pgrep -af "$pattern" | sed 's/^/   /'
+        return 0
+    else
+        echo "❌ $name: not running"
+        return 1
+    fi
+}
+
+echo "🎮 Application Status:"
+check_running "Antigravity" "antigravity"
+echo ""
+
+echo "📦 VNC Services:"
+check_running "Xvnc       " "Xvnc :99"
+check_running "Fluxbox    " "fluxbox"
+check_running "websockify " "websockify.*5999"
+check_running "DBus       " "dbus-daemon.*xdg-runtime"
+echo ""
+
+# Show PID file info if it exists
+if [ -f "$PID_FILE" ]; then
+    read -r VNC_PID FLUXBOX_PID WEBSOCKIFY_PID APP_PID DBUS_PID < "$PID_FILE"
+    echo "📄 PID File Contents:"
+    echo "   VNC: $VNC_PID | Fluxbox: $FLUXBOX_PID | websockify: $WEBSOCKIFY_PID"
+    echo "   App: $APP_PID | DBus: ${DBUS_PID:-N/A}"
     echo ""
 fi
 
-# Check PID file
-if [ -f "$PID_FILE" ]; then
-    read -r VNC_PID FLUXBOX_PID WEBSOCKIFY_PID APP_PID DBUS_PID < "$PID_FILE"
-
-    check_process() {
-        local name="$1"
-        local pid="$2"
-
-        if [ -z "$pid" ] || [ "$pid" = "" ]; then
-            return
-        fi
-
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "✅ $name: running (PID $pid)"
-        else
-            echo "❌ $name: stopped (was PID $pid)"
-        fi
-    }
-
-    echo "📦 VNC Services:"
-    check_process "VNC Server  " "$VNC_PID"
-    check_process "Fluxbox     " "$FLUXBOX_PID"
-    check_process "noVNC Proxy " "$WEBSOCKIFY_PID"
-    check_process "DBus Daemon " "$DBUS_PID"
-else
-    echo "⚪ No PID file found"
-fi
-
-echo ""
 echo "📺 VNC URL:"
 echo "https://5999-firebase-antigravity-1763533608633.cluster-iusnsmywp5clov45nv5gsxt5he.cloudworkstations.dev/vnc.html"
 echo ""
