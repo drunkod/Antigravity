@@ -59,7 +59,6 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-gpu \
   --disable-gpu-compositing \
   --disable-gpu-sandbox \
-  --disable-software-rasterizer \
   --disable-dev-shm-usage \
   --disable-vulkan \
   --disable-features=VizDisplayCompositor,Vulkan,UseSkiaRenderer \
@@ -70,6 +69,7 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-breakpad \
   --no-zygote \
   --single-process \
+  --use-gl=swiftshader \
   "$@"
 EOF
           chmod +x $out/bin/google-chrome
@@ -83,7 +83,6 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-gpu \
   --disable-gpu-compositing \
   --disable-gpu-sandbox \
-  --disable-software-rasterizer \
   --disable-dev-shm-usage \
   --disable-vulkan \
   --disable-features=VizDisplayCompositor,Vulkan,UseSkiaRenderer \
@@ -94,6 +93,7 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-breakpad \
   --no-zygote \
   --single-process \
+  --use-gl=swiftshader \
   "$@"
 EOF
           chmod +x $out/bin/xdg-open
@@ -121,7 +121,7 @@ EOF
             --unset XDG_CURRENT_DESKTOP \
             --unset DESKTOP_SESSION \
             --unset GIO_LAUNCHED_DESKTOP_FILE_PID \
-            --add-flags "--disable-gpu --no-sandbox --disable-vulkan --disable-software-rasterizer"
+            --add-flags "--no-sandbox --disable-gpu --disable-vulkan --disable-dev-shm-usage --use-gl=swiftshader"
 
           runHook postInstall
         '';
