@@ -8,6 +8,8 @@ WEB_PORT=$((5999 + DISPLAY_NUM - 99))
 export DISPLAY=:$DISPLAY_NUM
 export NIXPKGS_ALLOW_UNFREE=1
 
+PID_FILE="$HOME/.antigravity-vnc.pid"
+
 echo "============================================"
 echo "🚀 Antigravity VNC Launcher"
 echo "============================================"
@@ -59,6 +61,7 @@ sleep 3
 # Window manager
 echo "🖥️  Starting Fluxbox..."
 DISPLAY=:$DISPLAY_NUM fluxbox 2>/dev/null &
+FLUXBOX_PID=$!
 sleep 1
 
 # noVNC proxy
@@ -84,13 +87,11 @@ echo "🚀 Launching Antigravity..."
 ./result/bin/antigravity 2>&1 &
 APP_PID=$!
 
+# Save PIDs for later cleanup
+echo "$VNC_PID $FLUXBOX_PID $WEBSOCKIFY_PID $APP_PID ${DBUS_PID:-}" > "$PID_FILE"
+
 echo "🎮 App running (PID $APP_PID)"
-echo "Press Ctrl+C to stop."
-
-cleanup() {
-    echo "🧹 Stopping..."
-    kill ${APP_PID:-} ${WEBSOCKIFY_PID:-} ${VNC_PID:-} ${DBUS_PID:-} 2>/dev/null
-}
-trap cleanup EXIT INT TERM
-
-wait $APP_PID
+echo ""
+echo "✨ Services are running in background"
+echo "   To stop all services, run: ./stop-vnc.sh"
+echo ""
