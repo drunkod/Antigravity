@@ -5,9 +5,10 @@ export DISPLAY=:99
 export NIXPKGS_ALLOW_UNFREE=1
 
 PID_FILE="$HOME/.antigravity-vnc.pid"
+LOG_FILE="$HOME/.antigravity-vnc.log"
 
 echo "============================================"
-echo "🚀 Antigravity VNC Launcher (Debug Mode)"
+echo "🚀 Antigravity VNC Launcher"
 echo "============================================"
 
 # Check if already running
@@ -25,20 +26,16 @@ fi
 echo "🛠️  Configuring Fonts..."
 export FONTCONFIG_FILE=$(nix-build --no-out-link -E 'with import <nixpkgs> {}; makeFontsConf { fontDirectories = [ dejavu_fonts liberation_ttf noto-fonts ]; }')
 
-# ===== FIX 1: Start DBus session (FIXED) =====
+# ===== DBus session =====
 echo "🔌 Starting DBus session..."
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
-
-# Clean up old DBus socket
 rm -f "$XDG_RUNTIME_DIR/bus" || true
 
-# Create machine-id if needed
 export DBUS_MACHINE_UUID_FILE="$XDG_RUNTIME_DIR/machine-id"
 dbus-uuidgen --ensure="$DBUS_MACHINE_UUID_FILE" >/dev/null
 
-# Start DBus properly
 DBUS_DAEMON="$(command -v dbus-daemon)"
 DBUS_PREFIX="$(dirname "$(dirname "$(readlink -f "$DBUS_DAEMON")")")"
 DBUS_SESSION_CONF="$DBUS_PREFIX/share/dbus-1/session.conf"
@@ -52,13 +49,13 @@ if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
   )
   export DBUS_SESSION_BUS_ADDRESS="${_dbus_out[0]}"
   DBUS_PID="${_dbus_out[1]}"
-  echo "   DBus started: $DBUS_SESSION_BUS_ADDRESS (PID $DBUS_PID)"
+  echo "   DBus started (PID $DBUS_PID)"
 else
-  echo "   DBus already running: $DBUS_SESSION_BUS_ADDRESS"
+  echo "   DBus already running"
   DBUS_PID=""
 fi
 
-# ===== FIX 2: Disable Vulkan/GPU features =====
+# ===== Disable GPU/Vulkan =====
 export VK_ICD_FILENAMES=""
 export LIBVA_DRIVER_NAME=null
 export MESA_LOADER_DRIVER_OVERRIDE=swrast
@@ -100,33 +97,35 @@ echo ""
 # Build Antigravity
 echo "🔨 Building Antigravity..."
 cd ~/antigravity
-nix build . --impure
-
-echo ""
-echo "🔍 DEBUG: DBus address = $DBUS_SESSION_BUS_ADDRESS"
-echo ""
+nix build . --impure 2>&1 | grep -v "warning: Git tree" || true
 
 # Kill any existing antigravity processes
-pkill -f "antigravity" 2>/dev/null || true
+pkill -f "result/bin/antigravity" 2>/dev/null || true
 sleep 1
 
 echo "🚀 Launching Antigravity..."
-DISPLAY=:99 ./result/bin/antigravity 2>&1 &
+echo "   Logging to: $LOG_FILE"
+DISPLAY=:99 ./result/bin/antigravity > "$LOG_FILE" 2>&1 &
 APP_PID=$!
 
-sleep 2
+sleep 3
 
-# Verify only one instance is running
-ANTIGRAVITY_COUNT=$(pgrep -f "antigravity" | wc -l)
-echo "   Antigravity processes running: $ANTIGRAVITY_COUNT"
+# Check if app is still running
+if kill -0 "$APP_PID" 2>/dev/null; then
+    ANTIGRAVITY_COUNT=$(pgrep -f "antigravity" | wc -l)
+    echo "   ✅ Antigravity started (main PID $APP_PID)"
+    echo "   📊 Total processes: $ANTIGRAVITY_COUNT (normal for Electron)"
+else
+    echo "   ❌ Antigravity crashed! Check log:"
+    tail -20 "$LOG_FILE"
+    exit 1
+fi
 
-# Save all PIDs for later management
+# Save PIDs
 echo "$VNC_PID $FLUXBOX_PID $WEBSOCKIFY_PID $APP_PID ${DBUS_PID:-}" > "$PID_FILE"
 
 echo ""
-echo "🎮 App running (PID $APP_PID)!"
-echo ""
 echo "✨ All services running in background"
-echo "   Stop services: ./stop-vnc.sh"
-echo "   Check status:  ./status-vnc.sh"
+echo "   Stop: ./stop-vnc.sh  |  Status: ./status-vnc.sh"
+echo "   Logs: tail -f $LOG_FILE"
 echo ""

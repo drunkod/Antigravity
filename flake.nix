@@ -33,14 +33,82 @@
 
           postBuild = ''
             mkdir -p $out/bin
+
+            # Bash/Shell symlinks
             ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/bash
             ln -sf ${pkgs.bashInteractive}/bin/sh $out/bin/sh
+
+            # Git symlink
             ln -sf ${pkgs.git}/bin/git $out/bin/git
 
+            # Chrome wrapper - SINGLE PROCESS for external browser only!
+            cat > $out/bin/google-chrome <<'EOF'
+#!/usr/bin/env bash
+echo "[google-chrome] Opening external link: $@" >&2
+exec ${pkgs.chromium}/bin/chromium \
+  --no-sandbox \
+  --disable-gpu \
+  --disable-gpu-compositing \
+  --disable-gpu-sandbox \
+  --disable-software-rasterizer \
+  --disable-dev-shm-usage \
+  --disable-vulkan \
+  --disable-features=VizDisplayCompositor,Vulkan,UseSkiaRenderer \
+  --enable-features=UseOzonePlatform \
+  --ozone-platform=x11 \
+  --disable-accelerated-2d-canvas \
+  --disable-accelerated-video-decode \
+  --disable-breakpad \
+  --no-zygote \
+  --single-process \
+  "$@"
+EOF
+            chmod +x $out/bin/google-chrome
+
+            # xdg-open wrapper with same flags
+            cat > $out/bin/xdg-open <<'EOF'
+#!/usr/bin/env bash
+echo "[xdg-open] Opening: $@" >&2
+exec ${pkgs.chromium}/bin/chromium \
+  --no-sandbox \
+  --disable-gpu \
+  --disable-gpu-compositing \
+  --disable-gpu-sandbox \
+  --disable-software-rasterizer \
+  --disable-dev-shm-usage \
+  --disable-vulkan \
+  --disable-features=VizDisplayCompositor,Vulkan,UseSkiaRenderer \
+  --enable-features=UseOzonePlatform \
+  --ozone-platform=x11 \
+  --disable-accelerated-2d-canvas \
+  --disable-accelerated-video-decode \
+  --disable-breakpad \
+  --no-zygote \
+  --single-process \
+  "$@"
+EOF
+            chmod +x $out/bin/xdg-open
+
+            # Chrome symlinks
+            for name in google-chrome-stable chromium chromium-browser chrome; do
+              ln -sf google-chrome $out/bin/$name
+            done
+
+            # Wrap Antigravity - NO single-process flags!
             wrapProgram $out/bin/antigravity \
-              --prefix PATH : "${pkgs.lib.makeBinPath terminalDeps}:$out/bin" \
+              --prefix PATH : "$out/bin:${pkgs.lib.makeBinPath terminalDeps}:${pkgs.git}/bin" \
               --set-default SHELL "${pkgs.bashInteractive}/bin/bash" \
-              --add-flags "--no-sandbox --single-process --no-zygote"
+              --set-default CHROME_PATH "$out/bin/google-chrome" \
+              --set-default CHROME_EXECUTABLE "$out/bin/google-chrome" \
+              --set-default CHROME_BIN "$out/bin/google-chrome" \
+              --set-default BROWSER "$out/bin/google-chrome" \
+              --set VK_ICD_FILENAMES "" \
+              --set LIBVA_DRIVER_NAME "null" \
+              --set MESA_LOADER_DRIVER_OVERRIDE "swrast" \
+              --set GALLIUM_DRIVER "llvmpipe" \
+              --unset XDG_CURRENT_DESKTOP \
+              --unset DESKTOP_SESSION \
+              --add-flags "--disable-gpu --no-sandbox --disable-vulkan --disable-software-rasterizer"
           '';
 
           meta = pkgs.antigravity.meta // {
