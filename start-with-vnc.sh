@@ -1,24 +1,47 @@
 #!/usr/bin/env nix-shell
-#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus
+#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc
 
 export DISPLAY=:99
 export NIXPKGS_ALLOW_UNFREE=1
 
 PID_FILE="$HOME/.antigravity-vnc.pid"
 LOG_FILE="$HOME/.antigravity-vnc.log"
+LOCK_FILE="$HOME/.antigravity-vnc.lock"
 
 echo "============================================"
 echo "🚀 Antigravity VNC Launcher"
 echo "============================================"
 
-# Check if already running
-if [ -f "$PID_FILE" ]; then
-    read -r VNC_PID FLUXBOX_PID WEBSOCKIFY_PID APP_PID DBUS_PID < "$PID_FILE"
-    if [ -n "$APP_PID" ] && kill -0 "$APP_PID" 2>/dev/null; then
-        echo "⚠️  Antigravity is already running (PID $APP_PID)"
-        echo "   Use ./stop-vnc.sh to stop it first"
+# Kill ALL existing Antigravity processes first
+echo "🧹 Checking for existing Antigravity instances..."
+EXISTING_PIDS=$(pgrep -f "antigravity" || true)
+if [ -n "$EXISTING_PIDS" ]; then
+    echo "   Found running instances, stopping them..."
+    pkill -9 -f "antigravity" 2>/dev/null || true
+    sleep 2
+    # Verify they're dead
+    STILL_RUNNING=$(pgrep -f "antigravity" || true)
+    if [ -n "$STILL_RUNNING" ]; then
+        echo "   ⚠️  Some processes still running: $STILL_RUNNING"
+        killall -9 antigravity 2>/dev/null || true
+        sleep 1
+    fi
+    echo "   ✅ Cleaned up old instances"
+fi
+
+# Check lock file
+if [ -f "$LOCK_FILE" ]; then
+    LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+    if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        echo "⚠️  Antigravity is already running (PID $LOCK_PID)"
+        echo "   Run ./stop-vnc.sh to stop it first"
         exit 1
     fi
+    rm -f "$LOCK_FILE"
+fi
+
+# Check PID file
+if [ -f "$PID_FILE" ]; then
     echo "🧹 Cleaning up stale PID file..."
     rm -f "$PID_FILE"
 fi
@@ -99,26 +122,40 @@ echo "🔨 Building Antigravity..."
 cd ~/antigravity
 nix build . --impure 2>&1 | grep -v "warning: Git tree" || true
 
-# Kill any existing antigravity processes
-pkill -f "result/bin/antigravity" 2>/dev/null || true
-sleep 1
-
 echo "🚀 Launching Antigravity..."
 echo "   Logging to: $LOG_FILE"
+
+# Final safety check - make absolutely sure no antigravity is running
+pkill -9 -f "antigravity" 2>/dev/null || true
+sleep 1
+
+# Launch with logging
 DISPLAY=:99 ./result/bin/antigravity > "$LOG_FILE" 2>&1 &
 APP_PID=$!
 
+# Create lock file immediately
+echo "$APP_PID" > "$LOCK_FILE"
+
 sleep 3
 
-# Check if app is still running
-if kill -0 "$APP_PID" 2>/dev/null; then
-    ANTIGRAVITY_COUNT=$(pgrep -f "antigravity" | wc -l)
-    echo "   ✅ Antigravity started (main PID $APP_PID)"
-    echo "   📊 Total processes: $ANTIGRAVITY_COUNT (normal for Electron)"
-else
+# Verify it's running
+if ! kill -0 "$APP_PID" 2>/dev/null; then
     echo "   ❌ Antigravity crashed! Check log:"
     tail -20 "$LOG_FILE"
+    rm -f "$LOCK_FILE"
     exit 1
+fi
+
+# Count processes (should be 2-4 for Electron: main + renderer + helpers)
+ANTIGRAVITY_COUNT=$(pgrep -f "antigravity" | wc -l)
+echo "   ✅ Antigravity started (main PID $APP_PID)"
+echo "   📊 Electron processes: $ANTIGRAVITY_COUNT"
+
+# Verify we don't have duplicate main processes
+MAIN_PROCESSES=$(pgrep -f "result/bin/antigravity" | wc -l)
+if [ "$MAIN_PROCESSES" -gt 1 ]; then
+    echo "   ⚠️  WARNING: Multiple main processes detected!"
+    pgrep -af "antigravity"
 fi
 
 # Save PIDs
