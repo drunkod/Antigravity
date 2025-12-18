@@ -1,34 +1,35 @@
 #!/usr/bin/env bash
 
-echo "🧪 Testing Antigravity Bash Wrapper"
+echo "🧪 Testing Antigravity Bash"
 echo "===================================="
 echo ""
 
 cd ~/antigravity
 nix build . --impure 2>&1 | grep -v "warning:" || true
 
-echo "1. Testing bash wrapper directly:"
-./result/bin/bash -c 'echo "✅ Bash works"; echo "PATH has $(echo $PATH | tr ":" "\n" | wc -l) entries"'
+BASH_BIN="./result/bin/bash"
+
+echo "1. Testing bash execution:"
+$BASH_BIN -c 'echo "✅ Bash works"'
 echo ""
 
-echo "2. Testing with --init-file (like Antigravity uses):"
-echo 'echo "✅ Init file executed"' > /tmp/test-init.sh
-./result/bin/bash --init-file /tmp/test-init.sh -c 'echo "✅ Bash with init-file works"'
-rm /tmp/test-init.sh
+echo "2. Checking binary type (should be ELF, not script):"
+if file $BASH_BIN | grep -q "ELF"; then
+    echo "✅ Bash is an ELF binary (symlink)"
+else
+    echo "❌ Bash is NOT an ELF binary (likely a wrapper script)"
+fi
+readlink -f $BASH_BIN
 echo ""
 
-echo "3. Testing git availability:"
-./result/bin/bash -c 'which git && git --version'
+echo "3. Checking Git symlink:"
+if [ -L "./result/bin/git" ]; then
+    echo "✅ Git symlink exists in bin/"
+else
+    echo "❌ Git symlink missing"
+fi
 echo ""
 
-echo "4. Testing PATH contents:"
-./result/bin/bash -c 'echo $PATH | tr ":" "\n" | head -10'
-echo ""
-
-echo "5. Checking what bash actually is:"
-readlink -f ./result/bin/bash
-cat ./result/bin/bash | head -20
-echo ""
-
-echo "6. Testing interactive mode:"
-echo -e 'echo "Interactive test"\nls /\nexit' | ./result/bin/bash -i
+echo "4. Testing interactive mode (simulated):"
+# This should no longer show __vsc_prompt_cmd_original errors
+echo -e 'echo "Interactive test"\nexit' | $BASH_BIN -i

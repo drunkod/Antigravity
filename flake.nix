@@ -42,13 +42,10 @@
           postBuild = ''
             mkdir -p $out/bin
 
-            # Create PROPER bash wrapper that handles all arguments
-            makeWrapper ${pkgs.bashInteractive}/bin/bash $out/bin/bash \
-              --prefix PATH : "${fullPath}" \
-              --set-default SHELL "${pkgs.bashInteractive}/bin/bash"
-
-            # sh is just bash
-            ln -sf bash $out/bin/sh
+            # Symlink bash directly to avoid wrapper script issues with VS Code shell integration
+            # The PATH is inherited from the Antigravity process environment
+            ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/bash
+            ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/sh
 
             # Git symlink
             ln -sf ${pkgs.git}/bin/git $out/bin/git

@@ -2,46 +2,36 @@
 
 echo "🔍 Antigravity Terminal Debug Info"
 echo "=================================="
+
+echo "1. Process Info:"
+echo "   PID: $$"
+echo "   BASH: $BASH"
+echo "   SHELL: $SHELL"
 echo ""
 
-echo "1. Bash Location:"
-which bash
-ls -la $(which bash)
+echo "2. PATH Check:"
+echo "$PATH" | tr ':' '\n' | head -5
+echo "... (truncated)"
 echo ""
 
-echo "2. Bash Version:"
-bash --version | head -1
-echo ""
-
-echo "3. SHELL variable:"
-echo "$SHELL"
-echo ""
-
-echo "4. PATH:"
-echo "$PATH" | tr ':' '\n'
-echo ""
-
-echo "5. Available commands:"
-for cmd in git ls cat grep sed find which ps top; do
-    if command -v $cmd >/dev/null 2>&1; then
-        echo "  ✅ $cmd: $(which $cmd)"
+echo "3. Command Availability:"
+check_cmd() {
+    if command -v "$1" >/dev/null 2>&1; then
+        echo "   ✅ $1: $(command -v $1)"
     else
-        echo "  ❌ $cmd: NOT FOUND"
+        echo "   ❌ $1: NOT FOUND"
     fi
-done
+}
+
+check_cmd git
+check_cmd ls
+check_cmd grep
+check_cmd code
 echo ""
 
-echo "6. Terminal info:"
-echo "  TERM: $TERM"
-echo "  PWD: $PWD"
-echo "  USER: $USER"
-echo "  HOME: $HOME"
+echo "4. Environment:"
+env | grep -E "TERM|SHELL|VSCODE" | sort
 echo ""
 
-echo "7. Test basic commands:"
-echo "  ls: $(ls / | wc -l) items in /"
-echo "  git: $(git --version)"
-echo ""
-
-echo "8. Nix store bash:"
-ls -la /nix/store/*bash*/bin/bash 2>/dev/null | head -5
+echo "5. Git Version:"
+git --version 2>&1 || echo "Git failed"
