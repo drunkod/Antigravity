@@ -26,12 +26,11 @@
             which
             less
             tree
-            file
+            file          # Added for file command
             util-linux
-            ncurses  # for terminal features
+            ncurses
           ];
 
-          # Full PATH for terminal
           fullPath = pkgs.lib.makeBinPath (terminalDeps ++ [ pkgs.git ]);
         in
         pkgs.symlinkJoin {
@@ -42,15 +41,14 @@
           postBuild = ''
             mkdir -p $out/bin
 
-            # Symlink bash directly to avoid wrapper script issues with VS Code shell integration
-            # The PATH is inherited from the Antigravity process environment
+            # Direct symlink to bash (no wrapper script)
             ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/bash
             ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/sh
 
             # Git symlink
             ln -sf ${pkgs.git}/bin/git $out/bin/git
 
-            # Chrome wrapper - SINGLE PROCESS for external browser only!
+            # Chrome wrapper
             cat > $out/bin/google-chrome <<'EOF'
 #!/usr/bin/env bash
 echo "[google-chrome] Opening external link: $@" >&2
@@ -103,7 +101,7 @@ EOF
               ln -sf google-chrome $out/bin/$name
             done
 
-            # Wrap Antigravity with proper environment
+            # Wrap Antigravity
             wrapProgram $out/bin/antigravity \
               --prefix PATH : "$out/bin:${fullPath}" \
               --set-default SHELL "$out/bin/bash" \
