@@ -24,11 +24,11 @@
             findutils
             procps
             which
-            # Add more terminal essentials
             less
             tree
             file
             util-linux
+            ncurses  # for terminal features
           ];
 
           # Full PATH for terminal
@@ -42,28 +42,12 @@
           postBuild = ''
             mkdir -p $out/bin
 
-            # Create proper bash wrapper (not just symlink!)
-            cat > $out/bin/bash <<'BASH_EOF'
-#!/usr/bin/env bash
-# Antigravity bash wrapper - ensures proper environment
+            # Create PROPER bash wrapper that handles all arguments
+            makeWrapper ${pkgs.bashInteractive}/bin/bash $out/bin/bash \
+              --prefix PATH : "${fullPath}" \
+              --set-default SHELL "${pkgs.bashInteractive}/bin/bash"
 
-# Set up PATH
-export PATH="${fullPath}:$PATH"
-
-# Set SHELL to real bash
-export SHELL="${pkgs.bashInteractive}/bin/bash"
-
-# Source system bashrc if available
-if [ -f /etc/bashrc ]; then
-  source /etc/bashrc
-fi
-
-# Execute real bash with all arguments
-exec "${pkgs.bashInteractive}/bin/bash" "$@"
-BASH_EOF
-            chmod +x $out/bin/bash
-
-            # sh symlink to bash
+            # sh is just bash
             ln -sf bash $out/bin/sh
 
             # Git symlink
@@ -93,7 +77,7 @@ exec ${pkgs.chromium}/bin/chromium \
 EOF
             chmod +x $out/bin/google-chrome
 
-            # xdg-open wrapper with same flags
+            # xdg-open wrapper
             cat > $out/bin/xdg-open <<'EOF'
 #!/usr/bin/env bash
 echo "[xdg-open] Opening: $@" >&2
