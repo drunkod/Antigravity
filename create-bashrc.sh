@@ -23,7 +23,7 @@ shopt -s checkwinsize
 # Make less more friendly for non-text files
 [ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
 
-# Set a simple prompt (will be overridden by VS Code if integration works)
+# Set a simple prompt
 PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 
 # Enable color support
@@ -38,19 +38,19 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 
-# Source VS Code shell integration if it exists
-# This variable is set by VS Code when launching the terminal
-if [ -n "$VSCODE_SHELL_INTEGRATION" ]; then
-    # Prevent the __vsc_prompt_cmd_original error
-    if [ -z "$__vsc_prompt_cmd_original" ]; then
-        __vsc_prompt_cmd_original=""
-    fi
+# --- VS Code Compatibility Fixes ---
+
+# 1. Prevent __vsc_prompt_cmd_original command not found errors
+if [ -z "$__vsc_prompt_cmd_original" ]; then
+    __vsc_prompt_cmd_original=""
 fi
 
-echo "✅ .bashrc loaded for Antigravity terminal"
+# 2. Ensure PATH includes common locations if they were stripped
+export PATH="$PATH:/usr/bin:/bin:/usr/sbin:/sbin"
+
+echo "✅ .bashrc loaded"
 EOF
 
 echo "✅ Created ~/.bashrc for Antigravity"
 echo ""
-echo "Now restart Antigravity:"
-echo "  ./stop-vnc.sh && ./start-with-vnc.sh"
+echo "Now run ./fix-shell-integration.sh to configure VS Code settings."

@@ -26,11 +26,12 @@
             which
             less
             tree
-            file          # Added for file command
+            file
             util-linux
             ncurses
           ];
 
+          # Full PATH for terminal
           fullPath = pkgs.lib.makeBinPath (terminalDeps ++ [ pkgs.git ]);
         in
         pkgs.symlinkJoin {
@@ -42,6 +43,7 @@
             mkdir -p $out/bin
 
             # Direct symlink to bash (no wrapper script)
+            # This is crucial for VS Code terminal to work correctly
             ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/bash
             ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/sh
 
@@ -101,7 +103,7 @@ EOF
               ln -sf google-chrome $out/bin/$name
             done
 
-            # Wrap Antigravity
+            # Wrap Antigravity with proper environment
             wrapProgram $out/bin/antigravity \
               --prefix PATH : "$out/bin:${fullPath}" \
               --set-default SHELL "$out/bin/bash" \
