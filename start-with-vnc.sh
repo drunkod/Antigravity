@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc
+#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc wget unzip
 
 export DISPLAY=:99
 export NIXPKGS_ALLOW_UNFREE=1
@@ -45,7 +45,19 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 echo "🛠️  Configuring Fonts..."
-export FONTCONFIG_FILE=$(nix-build --no-out-link -E 'with import <nixpkgs> {}; makeFontsConf { fontDirectories = [ dejavu_fonts liberation_ttf noto-fonts ]; }')
+# Include user fonts directory
+export FONTCONFIG_FILE=$(nix-build --no-out-link -E '
+with import <nixpkgs> {};
+let
+  userFontsDir = builtins.getEnv "HOME" + "/.local/share/fonts";
+in
+makeFontsConf {
+  fontDirectories = [
+    dejavu_fonts
+    liberation_ttf
+    noto-fonts
+  ] ++ (if builtins.pathExists userFontsDir then [ userFontsDir ] else []);
+}')
 
 # ===== DBus session =====
 echo "🔌 Starting DBus session..."
@@ -163,5 +175,4 @@ echo ""
 echo "✨ All services running in background"
 echo "   Stop: ./stop-vnc.sh  |  Status: ./status-vnc.sh"
 echo "   Logs: tail -f $LOG_FILE"
-echo "   Test terminal: ./test-terminal-in-app.sh"
 echo ""
