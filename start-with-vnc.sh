@@ -129,8 +129,12 @@ echo "   Logging to: $LOG_FILE"
 pkill -9 -f "antigravity" 2>/dev/null || true
 sleep 1
 
-# Launch with logging
-DISPLAY=:99 ./result/bin/antigravity > "$LOG_FILE" 2>&1 &
+# Enable Electron/Chrome logging
+export ELECTRON_ENABLE_LOGGING=1
+export ELECTRON_LOG_FILE="$HOME/.antigravity-electron.log"
+
+# Launch with logging and verbose flags
+DISPLAY=:99 ./result/bin/antigravity --verbose --log-level=debug > "$LOG_FILE" 2>&1 &
 APP_PID=$!
 
 # Create lock file immediately

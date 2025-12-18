@@ -24,7 +24,15 @@
             findutils
             procps
             which
+            # Add more terminal essentials
+            less
+            tree
+            file
+            util-linux
           ];
+
+          # Full PATH for terminal
+          fullPath = pkgs.lib.makeBinPath (terminalDeps ++ [ pkgs.git ]);
         in
         pkgs.symlinkJoin {
           name = "antigravity-wrapped";
@@ -34,9 +42,29 @@
           postBuild = ''
             mkdir -p $out/bin
 
-            # Bash/Shell symlinks
-            ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/bash
-            ln -sf ${pkgs.bashInteractive}/bin/sh $out/bin/sh
+            # Create proper bash wrapper (not just symlink!)
+            cat > $out/bin/bash <<'BASH_EOF'
+#!/usr/bin/env bash
+# Antigravity bash wrapper - ensures proper environment
+
+# Set up PATH
+export PATH="${fullPath}:$PATH"
+
+# Set SHELL to real bash
+export SHELL="${pkgs.bashInteractive}/bin/bash"
+
+# Source system bashrc if available
+if [ -f /etc/bashrc ]; then
+  source /etc/bashrc
+fi
+
+# Execute real bash with all arguments
+exec "${pkgs.bashInteractive}/bin/bash" "$@"
+BASH_EOF
+            chmod +x $out/bin/bash
+
+            # sh symlink to bash
+            ln -sf bash $out/bin/sh
 
             # Git symlink
             ln -sf ${pkgs.git}/bin/git $out/bin/git
@@ -94,10 +122,10 @@ EOF
               ln -sf google-chrome $out/bin/$name
             done
 
-            # Wrap Antigravity - NO single-process flags!
+            # Wrap Antigravity with proper environment
             wrapProgram $out/bin/antigravity \
-              --prefix PATH : "$out/bin:${pkgs.lib.makeBinPath terminalDeps}:${pkgs.git}/bin" \
-              --set-default SHELL "${pkgs.bashInteractive}/bin/bash" \
+              --prefix PATH : "$out/bin:${fullPath}" \
+              --set-default SHELL "$out/bin/bash" \
               --set-default CHROME_PATH "$out/bin/google-chrome" \
               --set-default CHROME_EXECUTABLE "$out/bin/google-chrome" \
               --set-default CHROME_BIN "$out/bin/google-chrome" \
