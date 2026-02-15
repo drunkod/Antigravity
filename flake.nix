@@ -31,7 +31,6 @@
             ncurses
           ];
 
-          # Full PATH for terminal
           fullPath = pkgs.lib.makeBinPath (terminalDeps ++ [ pkgs.git ]);
         in
         pkgs.symlinkJoin {
@@ -42,18 +41,26 @@
           postBuild = ''
             mkdir -p $out/bin
 
-            # Direct symlink to bash (no wrapper script)
-            # This is crucial for VS Code terminal to work correctly
             ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/bash
             ln -sf ${pkgs.bashInteractive}/bin/bash $out/bin/sh
 
-            # Git symlink
             ln -sf ${pkgs.git}/bin/git $out/bin/git
 
-            # Chrome wrapper
+            # Chrome wrapper — auto-detects VPN proxy
             cat > $out/bin/google-chrome <<'EOF'
 #!/usr/bin/env bash
-echo "[google-chrome] Opening external link: $@" >&2
+echo "[google-chrome] Opening: $@" >&2
+
+# Build proxy arguments if VPN proxy is active
+PROXY_ARGS=""
+if [ -n "''${PROXY_SOCKS5:-}" ]; then
+  PROXY_ARGS="--proxy-server=socks5://$PROXY_SOCKS5"
+  echo "[google-chrome] Using VPN proxy: socks5://$PROXY_SOCKS5" >&2
+elif [ -n "''${ALL_PROXY:-}" ]; then
+  PROXY_ARGS="--proxy-server=$ALL_PROXY"
+  echo "[google-chrome] Using proxy: $ALL_PROXY" >&2
+fi
+
 exec ${pkgs.chromium}/bin/chromium \
   --no-sandbox \
   --disable-gpu \
@@ -68,14 +75,23 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-accelerated-2d-canvas \
   --disable-accelerated-video-decode \
   --disable-breakpad \
+  $PROXY_ARGS \
   "$@"
 EOF
             chmod +x $out/bin/google-chrome
 
-            # xdg-open wrapper
+            # xdg-open wrapper — also proxy-aware
             cat > $out/bin/xdg-open <<'EOF'
 #!/usr/bin/env bash
 echo "[xdg-open] Opening: $@" >&2
+
+PROXY_ARGS=""
+if [ -n "''${PROXY_SOCKS5:-}" ]; then
+  PROXY_ARGS="--proxy-server=socks5://$PROXY_SOCKS5"
+elif [ -n "''${ALL_PROXY:-}" ]; then
+  PROXY_ARGS="--proxy-server=$ALL_PROXY"
+fi
+
 exec ${pkgs.chromium}/bin/chromium \
   --no-sandbox \
   --disable-gpu \
@@ -90,16 +106,15 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-accelerated-2d-canvas \
   --disable-accelerated-video-decode \
   --disable-breakpad \
+  $PROXY_ARGS \
   "$@"
 EOF
             chmod +x $out/bin/xdg-open
 
-            # Chrome symlinks
             for name in google-chrome-stable chromium chromium-browser chrome; do
               ln -sf google-chrome $out/bin/$name
             done
 
-            # Wrap Antigravity with proper environment
             wrapProgram $out/bin/antigravity \
               --prefix PATH : "$out/bin:${fullPath}" \
               --set-default SHELL "$out/bin/bash" \
