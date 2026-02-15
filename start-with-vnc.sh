@@ -129,6 +129,6 @@ echo "   Logs: tail -f $LOG_FILE"
 if [ "$VPN_ENABLED" = true ]; then
     echo "   VPN log: tail -f $VPN_LOG_FILE"
     echo "   For other shells: source $PROXY_ENV_FILE"
-    echo "   Force-proxy an app: proxychains4 -f $SCRIPT_DIR/config/proxychains.conf <cmd>"
+    echo "   Force-proxy an app: proxychains4 -f $PROXYCHAINS_CONF <cmd>"
 fi
 echo ""

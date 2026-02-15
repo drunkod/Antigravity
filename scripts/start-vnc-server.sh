@@ -47,12 +47,8 @@ start_vnc_server() {
     fi
 
     echo "🌐 Starting noVNC proxy..."
-    local previous_dir
-    previous_dir="$PWD"
-    cd "$HOME/noVNC"
-    websockify --web=. "$NOVNC_PORT" "localhost:$VNC_PORT" 2>&1 &
+    websockify --web="$HOME/noVNC" "$NOVNC_PORT" "localhost:$VNC_PORT" 2>&1 &
     WEBSOCKIFY_PID=$!
-    cd "$previous_dir"
     sleep 2
 
     if ! kill -0 "$WEBSOCKIFY_PID" 2>/dev/null; then

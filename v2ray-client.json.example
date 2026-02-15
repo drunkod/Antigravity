@@ -19,6 +19,7 @@
     "queryStrategy": "UseIPv4",
     "tag": "dns-out"
   },
+  "_comment": "Inbound ports (10808, 10809) must match SOCKS_PORT and HTTP_PORT in config.env",
   "inbounds": [
     {
       "tag": "socks-in",

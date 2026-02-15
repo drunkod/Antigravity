@@ -38,6 +38,11 @@ setup_fluxbox() {
     cp "$SCRIPT_DIR/config/fluxbox/init" "$HOME/.fluxbox/init"
     cp "$SCRIPT_DIR/config/Xresources" "$HOME/.Xresources"
 
+    render_template \
+        "$SCRIPT_DIR/config/proxychains.conf.template" \
+        "$PROXYCHAINS_CONF" \
+        "SOCKS_PORT=$SOCKS_PORT"
+
     echo "   ✅ Fluxbox menu, keys, and theme configured"
 }
 
