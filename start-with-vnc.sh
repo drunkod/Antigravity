@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc wget unzip xray proxychains-ng curl xterm xdotool chromium xrdb
+#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc wget unzip xray proxychains-ng curl xterm xdotool xrdb
 
 export DISPLAY=:99
 export NIXPKGS_ALLOW_UNFREE=1
@@ -17,6 +17,8 @@ HTTP_PORT=10809
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Match actual app binaries, not paths like .../antigravity/v2ray-client.json
 APP_PATTERN="bin/antigravity"
+# Stable browser path; target is linked after nix build from ./result/bin/google-chrome
+BROWSER_CMD="$HOME/.local/bin/browser"
 
 echo "============================================"
 echo "🚀 Antigravity VNC Launcher (with VPN)"
@@ -212,53 +214,6 @@ fi
 # ============================================================
 
 # ============================================================
-#  Create a Chromium launcher script that Fluxbox can use
-# ============================================================
-echo "🌐 Creating browser launcher..."
-mkdir -p "$HOME/.local/bin"
-
-CHROMIUM_REAL="$(command -v chromium 2>/dev/null || true)"
-
-if [ -n "$CHROMIUM_REAL" ]; then
-    cat > "$HOME/.local/bin/browser" <<BROWSEREOF
-#!/usr/bin/env bash
-# Chromium launcher for VNC desktop
-
-PROXY_ARGS=""
-if [ -n "\${PROXY_SOCKS5:-}" ]; then
-    PROXY_ARGS="--proxy-server=socks5://\$PROXY_SOCKS5"
-elif [ -n "\${ALL_PROXY:-}" ]; then
-    PROXY_ARGS="--proxy-server=\$ALL_PROXY"
-fi
-
-exec "$CHROMIUM_REAL" \\
-    --no-sandbox \\
-    --disable-gpu \\
-    --disable-gpu-compositing \\
-    --disable-gpu-sandbox \\
-    --disable-software-rasterizer \\
-    --disable-dev-shm-usage \\
-    --disable-vulkan \\
-    --disable-features=VizDisplayCompositor,Vulkan,UseSkiaRenderer \\
-    --enable-features=UseOzonePlatform \\
-    --ozone-platform=x11 \\
-    --disable-accelerated-2d-canvas \\
-    --disable-accelerated-video-decode \\
-    --disable-breakpad \\
-    --user-data-dir="\$HOME/.chromium-vnc" \\
-    \$PROXY_ARGS \\
-    "\$@"
-BROWSEREOF
-    chmod +x "$HOME/.local/bin/browser"
-    BROWSER_CMD="$HOME/.local/bin/browser"
-    echo "   ✅ Browser launcher: $BROWSER_CMD"
-    echo "   ✅ Chromium binary:  $CHROMIUM_REAL"
-else
-    BROWSER_CMD=""
-    echo "   ⚠️  Chromium not found — browser menu disabled"
-fi
-
-# ============================================================
 #  Configure Fluxbox menu, keys, and settings
 # ============================================================
 echo "🖥️  Configuring Fluxbox..."
@@ -327,12 +282,10 @@ cat > "$HOME/.fluxbox/keys" <<KEYSEOF
 Control Mod1 T :Exec ${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -bg black -fg white
 KEYSEOF
 
-if [ -n "$BROWSER_CMD" ]; then
 cat >> "$HOME/.fluxbox/keys" <<KEYSEOF
 # Ctrl+Alt+B = browser
 Control Mod1 B :Exec ${BROWSER_CMD}
 KEYSEOF
-fi
 
 cat >> "$HOME/.fluxbox/keys" <<'KEYSEOF'
 
@@ -459,6 +412,21 @@ echo ""
 echo "🔨 Building Antigravity..."
 cd ~/antigravity
 nix build . --impure 2>&1 | grep -v "warning: Git tree" || true
+
+# Use the browser wrapper from the built flake output so menu + app share one Chromium
+echo "🌐 Setting up browser..."
+mkdir -p "$HOME/.local/bin"
+BUILT_BROWSER="$(readlink -f ./result/bin/google-chrome 2>/dev/null || true)"
+if [ -n "$BUILT_BROWSER" ] && [ -x "$BUILT_BROWSER" ]; then
+    ln -sf "$BUILT_BROWSER" "$BROWSER_CMD"
+    CHROMIUM_VERSION=$("$BROWSER_CMD" --version 2>/dev/null | head -1 || echo "unknown")
+    echo "   ✅ Browser: $BROWSER_CMD -> $BUILT_BROWSER"
+    echo "   ✅ Version: $CHROMIUM_VERSION"
+    echo "   ✅ Same binary used by Antigravity and Fluxbox menu"
+else
+    echo "   ⚠️  Could not find built google-chrome at ./result/bin/google-chrome"
+    echo "   Browser menu will not work"
+fi
 
 # Verify VPN survived the build
 if [ "$VPN_ENABLED" = true ]; then
