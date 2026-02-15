@@ -68,8 +68,6 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-accelerated-2d-canvas \
   --disable-accelerated-video-decode \
   --disable-breakpad \
-  --no-zygote \
-  --single-process \
   "$@"
 EOF
             chmod +x $out/bin/google-chrome
@@ -92,8 +90,6 @@ exec ${pkgs.chromium}/bin/chromium \
   --disable-accelerated-2d-canvas \
   --disable-accelerated-video-decode \
   --disable-breakpad \
-  --no-zygote \
-  --single-process \
   "$@"
 EOF
             chmod +x $out/bin/xdg-open
