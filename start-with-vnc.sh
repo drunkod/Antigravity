@@ -15,22 +15,24 @@ SOCKS_PORT=10808
 HTTP_PORT=10809
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Match actual app binaries, not paths like .../antigravity/v2ray-client.json
+APP_PATTERN="bin/antigravity"
 
 echo "============================================"
 echo "🚀 Antigravity VNC Launcher (with VPN)"
 echo "============================================"
 
-# Kill ALL existing Antigravity processes first
+# Kill ALL existing Antigravity app processes first
 echo "🧹 Checking for existing Antigravity instances..."
-EXISTING_PIDS=$(pgrep -f "antigravity" || true)
+EXISTING_PIDS=$(pgrep -f "$APP_PATTERN" || true)
 if [ -n "$EXISTING_PIDS" ]; then
     echo "   Found running instances, stopping them..."
-    pkill -9 -f "antigravity" 2>/dev/null || true
+    pkill -9 -f "$APP_PATTERN" 2>/dev/null || true
     sleep 2
-    STILL_RUNNING=$(pgrep -f "antigravity" || true)
+    STILL_RUNNING=$(pgrep -f "$APP_PATTERN" || true)
     if [ -n "$STILL_RUNNING" ]; then
         echo "   ⚠️  Some processes still running: $STILL_RUNNING"
-        killall -9 antigravity 2>/dev/null || true
+        kill -9 $STILL_RUNNING 2>/dev/null || true
         sleep 1
     fi
     echo "   ✅ Cleaned up old instances"
@@ -220,7 +222,7 @@ CHROMIUM_REAL="$(command -v chromium 2>/dev/null || true)"
 if [ -n "$CHROMIUM_REAL" ]; then
     cat > "$HOME/.local/bin/browser" <<BROWSEREOF
 #!/usr/bin/env bash
-# Chromium launcher for VNC desktop — all GPU disabled for software rendering
+# Chromium launcher for VNC desktop
 
 PROXY_ARGS=""
 if [ -n "\${PROXY_SOCKS5:-}" ]; then
@@ -243,15 +245,17 @@ exec "$CHROMIUM_REAL" \\
     --disable-accelerated-2d-canvas \\
     --disable-accelerated-video-decode \\
     --disable-breakpad \\
+    --user-data-dir="\$HOME/.chromium-vnc" \\
     \$PROXY_ARGS \\
     "\$@"
 BROWSEREOF
     chmod +x "$HOME/.local/bin/browser"
     BROWSER_CMD="$HOME/.local/bin/browser"
-    echo "   ✅ Browser launcher created (using $CHROMIUM_REAL)"
+    echo "   ✅ Browser launcher: $BROWSER_CMD"
+    echo "   ✅ Chromium binary:  $CHROMIUM_REAL"
 else
     BROWSER_CMD=""
-    echo "   ⚠️  Chromium not found in PATH — browser menu will be disabled"
+    echo "   ⚠️  Chromium not found — browser menu disabled"
 fi
 
 # ============================================================
@@ -283,6 +287,7 @@ cat >> "$HOME/.fluxbox/menu" <<MENUEOF
   [submenu] (Web Browser)
     [exec] (Chromium) {${BROWSER_CMD}}
     [exec] (Chromium — google.com) {${BROWSER_CMD} https://www.google.com}
+    [exec] (Chromium — check IP) {${BROWSER_CMD} https://ifconfig.me}
   [end]
 MENUEOF
 fi
@@ -296,7 +301,7 @@ cat >> "$HOME/.fluxbox/menu" <<MENUEOF
   [end]
   [submenu] (VPN)
     [exec] (VPN Status) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e ${SHELL_BIN} -lc 'cd ~/antigravity && ${SHELL_BIN} status-vnc.sh'}
-    [exec] (Check VPN IP) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e ${SHELL_BIN} -lc 'echo "=== VPN IP ==="; curl -s --connect-timeout 5 --proxy socks5h://127.0.0.1:10808 https://ifconfig.me 2>/dev/null || echo FAILED; echo; echo "=== Direct IP ==="; curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo FAILED; echo'}
+    [exec] (Check VPN IP) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e ${SHELL_BIN} -lc 'echo "=== VPN IP ==="; curl -s --connect-timeout 5 --proxy socks5h://127.0.0.1:10808 https://ifconfig.me 2>/dev/null || echo FAILED; echo; echo "=== Direct IP ==="; env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo FAILED; echo'}
     [exec] (VPN Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'tail -50f ~/.xray-vpn.log'}
     [exec] (App Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'tail -50f ~/.antigravity-vnc.log'}
   [end]
@@ -455,10 +460,30 @@ echo "🔨 Building Antigravity..."
 cd ~/antigravity
 nix build . --impure 2>&1 | grep -v "warning: Git tree" || true
 
+# Verify VPN survived the build
+if [ "$VPN_ENABLED" = true ]; then
+    if kill -0 "$XRAY_PID" 2>/dev/null; then
+        echo "   ✅ VPN still running after build (PID $XRAY_PID)"
+    else
+        echo "   ⚠️  VPN died during build! Restarting..."
+        xray run -config "$VPN_CONFIG" > "$VPN_LOG_FILE" 2>&1 &
+        XRAY_PID=$!
+        echo "$XRAY_PID" > "$VPN_PID_FILE"
+        sleep 3
+        if kill -0 "$XRAY_PID" 2>/dev/null; then
+            echo "   ✅ VPN restarted (PID $XRAY_PID)"
+        else
+            echo "   ❌ VPN restart failed"
+            VPN_ENABLED=false
+        fi
+    fi
+fi
+
 echo "🚀 Launching Antigravity..."
 echo "   Logging to: $LOG_FILE"
 
-pkill -9 -f "antigravity" 2>/dev/null || true
+# Kill only app processes, not xray config paths containing "antigravity"
+pkill -9 -f "$APP_PATTERN" 2>/dev/null || true
 sleep 1
 
 DISPLAY=:99 ./result/bin/antigravity --verbose 2>&1 | \
@@ -478,9 +503,18 @@ if ! kill -0 "$APP_PID" 2>/dev/null; then
     exit 1
 fi
 
-ANTIGRAVITY_COUNT=$(pgrep -f "antigravity" | wc -l)
+ANTIGRAVITY_COUNT=$(pgrep -f "$APP_PATTERN" | wc -l)
 echo "   ✅ Antigravity started (main PID $APP_PID)"
 echo "   📊 Electron processes: $ANTIGRAVITY_COUNT"
+
+# Final VPN check after everything is launched
+if [ "$VPN_ENABLED" = true ]; then
+    if kill -0 "$XRAY_PID" 2>/dev/null; then
+        echo "   🔐 VPN confirmed running (PID $XRAY_PID)"
+    else
+        echo "   ⚠️  VPN is not running!"
+    fi
+fi
 
 echo "$VNC_PID $FLUXBOX_PID $WEBSOCKIFY_PID $APP_PID ${DBUS_PID:-} ${XRAY_PID:-}" > "$PID_FILE"
 

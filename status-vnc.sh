@@ -6,6 +6,8 @@ VPN_PID_FILE="$HOME/.xray-vpn.pid"
 VPN_LOG_FILE="$HOME/.xray-vpn.log"
 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
 
+APP_PATTERN="bin/antigravity"
+
 echo "============================================"
 echo "📊 Antigravity VNC Status"
 echo "============================================"
@@ -27,7 +29,7 @@ check_running() {
 }
 
 echo "🎮 Application Status:"
-check_running "Antigravity" "antigravity"
+check_running "Antigravity" "$APP_PATTERN"
 echo ""
 
 echo "📦 VNC Services:"
@@ -48,8 +50,10 @@ echo ""
 if [ "$XRAY_RUNNING" = true ]; then
     echo "🌍 VPN Connection Test:"
     if command -v curl &>/dev/null; then
+        REAL_IP=$(env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+                      -u all_proxy -u ALL_PROXY \
+                  curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo "unknown")
         VPN_IP=$(curl -s --connect-timeout 5 --proxy "socks5h://127.0.0.1:10808" https://ifconfig.me 2>/dev/null || echo "failed")
-        REAL_IP=$(curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo "unknown")
         if [ "$VPN_IP" != "failed" ]; then
             echo "   Real IP: $REAL_IP"
             echo "   VPN IP:  $VPN_IP"

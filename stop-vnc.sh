@@ -6,15 +6,18 @@ VPN_PID_FILE="$HOME/.xray-vpn.pid"
 PROXY_ENV_FILE="$HOME/.xray-proxy.env"
 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
 
+# Pattern that matches the Electron app but NOT xray or this script
+APP_PATTERN="bin/antigravity"
+
 echo "🧹 Stopping Antigravity VNC services..."
 
-# 1. Kill all antigravity processes first
-ANTIGRAVITY_PIDS=$(pgrep -f "antigravity" || true)
+# 1. Kill antigravity app processes first (NOT xray!)
+ANTIGRAVITY_PIDS=$(pgrep -f "$APP_PATTERN" || true)
 if [ -n "$ANTIGRAVITY_PIDS" ]; then
-    echo "   Stopping Antigravity..."
-    pkill -15 -f "antigravity" 2>/dev/null || true
+    echo "   Stopping Antigravity app..."
+    pkill -15 -f "$APP_PATTERN" 2>/dev/null || true
     sleep 2
-    pkill -9 -f "antigravity" 2>/dev/null || true
+    pkill -9 -f "$APP_PATTERN" 2>/dev/null || true
 fi
 
 # 2. Stop services from PID file if it exists
@@ -35,7 +38,6 @@ if [ -f "$PID_FILE" ]; then
 
     sleep 1
 
-    # Force kill stragglers
     for pid in ${WEBSOCKIFY_PID:-} ${FLUXBOX_PID:-} ${VNC_PID:-} ${DBUS_PID:-} ${XRAY_PID:-}; do
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
             kill -9 "$pid" 2>/dev/null || true
@@ -82,6 +84,13 @@ if [ -n "$XRAY_PIDS" ]; then
     pkill -9 -f "xray run" 2>/dev/null || true
 fi
 
+# Kill remaining antigravity processes (safe pattern)
+REMAINING_APP=$(pgrep -f "$APP_PATTERN" || true)
+if [ -n "$REMAINING_APP" ]; then
+    echo "   Stopping remaining app (PIDs: $REMAINING_APP)"
+    pkill -9 -f "$APP_PATTERN" 2>/dev/null || true
+fi
+
 DBUS_PIDS=$(pgrep -f "dbus-daemon.*$XDG_RUNTIME_DIR" || true)
 if [ -n "$DBUS_PIDS" ]; then
     echo "   Stopping DBus daemons (PIDs: $DBUS_PIDS)"
@@ -118,7 +127,7 @@ check_process() {
 
 ALL_STOPPED=true
 
-check_process "Antigravity" "antigravity" || ALL_STOPPED=false
+check_process "Antigravity" "$APP_PATTERN" || ALL_STOPPED=false
 check_process "websockify " "websockify.*5999" || ALL_STOPPED=false
 check_process "Fluxbox    " "fluxbox" || ALL_STOPPED=false
 check_process "Xvnc       " "Xvnc :99" || ALL_STOPPED=false
@@ -130,5 +139,5 @@ if [ "$ALL_STOPPED" = true ]; then
     echo "✅ All services stopped successfully"
 else
     echo "⚠️  Some services are still running"
-    echo "   Try: ./kill-all.sh"
+    echo "   Try: kill -9 <pid>"
 fi
