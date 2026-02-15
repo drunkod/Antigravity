@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc wget unzip xray proxychains-ng curl xterm xdotool
+#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc wget unzip xray proxychains-ng curl xterm xdotool chromium xrdb
 
 export DISPLAY=:99
 export NIXPKGS_ALLOW_UNFREE=1
@@ -114,6 +114,9 @@ export ALSA_CONFIG_PATH="/dev/null"
 VPN_ENABLED=false
 XRAY_PID=""
 
+# Capture real IP before any proxy is set
+REAL_IP=$(curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo "unknown")
+
 # Determine which config to use
 VPN_CONFIG=""
 if [ -f "$SCRIPT_DIR/v2ray-client.json" ]; then
@@ -123,7 +126,6 @@ elif [ -f "$SCRIPT_DIR/v2ray-client-reality.json" ]; then
 fi
 
 if [ -n "$VPN_CONFIG" ]; then
-    # Check for placeholder values (only in template configs)
     if grep -q "YOUR_SERVER_ADDRESS\|YOUR-UUID-HERE\|YOUR_PUBLIC_KEY" "$VPN_CONFIG"; then
         echo ""
         echo "⚠️  VPN config found but has placeholder values."
@@ -135,11 +137,9 @@ if [ -n "$VPN_CONFIG" ]; then
         echo "🔐 Starting Xray VPN Proxy..."
         echo "   Config: $VPN_CONFIG"
 
-        # Kill any existing xray
         pkill -f "xray run" 2>/dev/null || true
         sleep 1
 
-        # Start Xray
         xray run -config "$VPN_CONFIG" > "$VPN_LOG_FILE" 2>&1 &
         XRAY_PID=$!
         echo "$XRAY_PID" > "$VPN_PID_FILE"
@@ -149,7 +149,6 @@ if [ -n "$VPN_CONFIG" ]; then
             VPN_ENABLED=true
             echo "   ✅ Xray started (PID $XRAY_PID)"
 
-            # Set proxy environment for ALL child processes
             export http_proxy="http://127.0.0.1:$HTTP_PORT"
             export https_proxy="http://127.0.0.1:$HTTP_PORT"
             export HTTP_PROXY="http://127.0.0.1:$HTTP_PORT"
@@ -161,7 +160,6 @@ if [ -n "$VPN_CONFIG" ]; then
             export PROXY_SOCKS5="127.0.0.1:$SOCKS_PORT"
             export PROXY_HTTP="127.0.0.1:$HTTP_PORT"
 
-            # Write env file for other shells
             cat > "$PROXY_ENV_FILE" <<PROXYEOF
 export http_proxy="http://127.0.0.1:$HTTP_PORT"
 export https_proxy="http://127.0.0.1:$HTTP_PORT"
@@ -175,21 +173,20 @@ export PROXY_SOCKS5="127.0.0.1:$SOCKS_PORT"
 export PROXY_HTTP="127.0.0.1:$HTTP_PORT"
 PROXYEOF
 
-            # Quick connectivity test
             echo "   🔍 Testing VPN connection..."
             if VPN_IP=$(curl -s --connect-timeout 8 --proxy "socks5h://127.0.0.1:$SOCKS_PORT" https://ifconfig.me 2>/dev/null); then
-                REAL_IP=$(curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo "unknown")
                 echo "   🌍 Real IP: $REAL_IP"
                 echo "   🔒 VPN IP:  $VPN_IP"
                 if [ "$VPN_IP" != "$REAL_IP" ]; then
                     echo "   ✅ IP is different — VPN is active!"
+                else
+                    echo "   ⚠️  IPs match — check server config"
                 fi
             else
                 echo "   ⚠️  VPN proxy running but connectivity test failed"
                 echo "      Check log: tail -f $VPN_LOG_FILE"
             fi
 
-            # Test HTTP proxy port too
             if curl -s --connect-timeout 5 --proxy "http://127.0.0.1:$HTTP_PORT" https://ifconfig.me > /dev/null 2>&1; then
                 echo "   ✅ HTTP proxy (port $HTTP_PORT) working"
             else
@@ -213,53 +210,95 @@ fi
 # ============================================================
 
 # ============================================================
-#  Configure Fluxbox menu and key bindings
+#  Create a Chromium launcher script that Fluxbox can use
+# ============================================================
+echo "🌐 Creating browser launcher..."
+mkdir -p "$HOME/.local/bin"
+
+CHROMIUM_REAL="$(command -v chromium 2>/dev/null || true)"
+
+if [ -n "$CHROMIUM_REAL" ]; then
+    cat > "$HOME/.local/bin/browser" <<BROWSEREOF
+#!/usr/bin/env bash
+# Chromium launcher for VNC desktop — all GPU disabled for software rendering
+
+PROXY_ARGS=""
+if [ -n "\${PROXY_SOCKS5:-}" ]; then
+    PROXY_ARGS="--proxy-server=socks5://\$PROXY_SOCKS5"
+elif [ -n "\${ALL_PROXY:-}" ]; then
+    PROXY_ARGS="--proxy-server=\$ALL_PROXY"
+fi
+
+exec "$CHROMIUM_REAL" \\
+    --no-sandbox \\
+    --disable-gpu \\
+    --disable-gpu-compositing \\
+    --disable-gpu-sandbox \\
+    --disable-software-rasterizer \\
+    --disable-dev-shm-usage \\
+    --disable-vulkan \\
+    --disable-features=VizDisplayCompositor,Vulkan,UseSkiaRenderer \\
+    --enable-features=UseOzonePlatform \\
+    --ozone-platform=x11 \\
+    --disable-accelerated-2d-canvas \\
+    --disable-accelerated-video-decode \\
+    --disable-breakpad \\
+    \$PROXY_ARGS \\
+    "\$@"
+BROWSEREOF
+    chmod +x "$HOME/.local/bin/browser"
+    BROWSER_CMD="$HOME/.local/bin/browser"
+    echo "   ✅ Browser launcher created (using $CHROMIUM_REAL)"
+else
+    BROWSER_CMD=""
+    echo "   ⚠️  Chromium not found in PATH — browser menu will be disabled"
+fi
+
+# ============================================================
+#  Configure Fluxbox menu, keys, and settings
 # ============================================================
 echo "🖥️  Configuring Fluxbox..."
 mkdir -p "$HOME/.fluxbox"
 
 TERMINAL_BIN="$(command -v xterm 2>/dev/null || true)"
 SHELL_BIN="$(command -v bash 2>/dev/null || command -v sh 2>/dev/null || echo "/bin/sh")"
-BROWSER_BIN="$(
-    command -v chromium 2>/dev/null \
-    || command -v google-chrome 2>/dev/null \
-    || command -v firefox 2>/dev/null \
-    || true
-)"
 
 if [ -z "$TERMINAL_BIN" ]; then
     echo "   ⚠️  No terminal emulator found in PATH"
 fi
 
+# Build the menu file
 cat > "$HOME/.fluxbox/menu" <<MENUEOF
 [begin] (Antigravity Desktop)
   [submenu] (Terminal)
     [exec] (XTerm) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11}
-    [exec] (XTerm - Dark) {${TERMINAL_BIN} -bg black -fg white -fa "DejaVu Sans Mono" -fs 11}
-    [exec] (Bash) {${TERMINAL_BIN} -e ${SHELL_BIN} --login}
+    [exec] (XTerm Dark) {${TERMINAL_BIN} -bg black -fg white -fa "DejaVu Sans Mono" -fs 11}
+    [exec] (XTerm Large) {${TERMINAL_BIN} -bg black -fg green -fa "DejaVu Sans Mono" -fs 14}
+    [exec] (Bash Login) {${TERMINAL_BIN} -e ${SHELL_BIN} --login}
   [end]
 MENUEOF
 
-if [ -n "$BROWSER_BIN" ]; then
+if [ -n "$BROWSER_CMD" ]; then
 cat >> "$HOME/.fluxbox/menu" <<MENUEOF
   [submenu] (Web Browser)
-    [exec] ($(basename "$BROWSER_BIN")) {${BROWSER_BIN} --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage}
+    [exec] (Chromium) {${BROWSER_CMD}}
+    [exec] (Chromium — google.com) {${BROWSER_CMD} https://www.google.com}
   [end]
 MENUEOF
 fi
 
 cat >> "$HOME/.fluxbox/menu" <<MENUEOF
   [submenu] (Tools)
-    [exec] (File Listing) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'ls -la ~; echo "---"; read -rp "Press Enter..."'}
-    [exec] (Disk Usage) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'df -h; echo "---"; read -rp "Press Enter..."'}
-    [exec] (Processes) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'ps aux; echo "---"; read -rp "Press Enter..."'}
-    [exec] (Network Info) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'echo "Hostname: \$(hostname)"; echo ""; ip addr 2>/dev/null || ifconfig 2>/dev/null; echo "---"; read -rp "Press Enter..."'}
+    [exec] (File Listing) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'ls -la ~; echo "---"; read -rp "Press Enter..."'}
+    [exec] (Disk Usage) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'df -h; echo "---"; read -rp "Press Enter..."'}
+    [exec] (Processes) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'ps aux; echo "---"; read -rp "Press Enter..."'}
+    [exec] (Network Info) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'echo "Hostname: \$(hostname)"; echo; ip addr 2>/dev/null || ifconfig 2>/dev/null; echo "---"; read -rp "Press Enter..."'}
   [end]
   [submenu] (VPN)
-    [exec] (VPN Status) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e bash -lc 'cd ~/antigravity && bash status-vnc.sh'}
-    [exec] (Check VPN IP) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e bash -lc 'echo "Checking IP via proxy..."; curl -s --connect-timeout 5 --proxy socks5h://127.0.0.1:10808 https://ifconfig.me; echo ""; echo "Direct IP:"; curl -s --connect-timeout 5 https://ifconfig.me; echo ""'}
-    [exec] (VPN Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'tail -50f ~/.xray-vpn.log'}
-    [exec] (App Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'tail -50f ~/.antigravity-vnc.log'}
+    [exec] (VPN Status) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e ${SHELL_BIN} -lc 'cd ~/antigravity && ${SHELL_BIN} status-vnc.sh'}
+    [exec] (Check VPN IP) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e ${SHELL_BIN} -lc 'echo "=== VPN IP ==="; curl -s --connect-timeout 5 --proxy socks5h://127.0.0.1:10808 https://ifconfig.me 2>/dev/null || echo FAILED; echo; echo "=== Direct IP ==="; curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo FAILED; echo'}
+    [exec] (VPN Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'tail -50f ~/.xray-vpn.log'}
+    [exec] (App Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e ${SHELL_BIN} -lc 'tail -50f ~/.antigravity-vnc.log'}
   [end]
   [separator]
   [submenu] (Fluxbox)
@@ -277,21 +316,22 @@ cat >> "$HOME/.fluxbox/menu" <<MENUEOF
 [end]
 MENUEOF
 
+# Build keybindings
 cat > "$HOME/.fluxbox/keys" <<KEYSEOF
-# Open terminal with Ctrl+Alt+T
+# Ctrl+Alt+T = terminal
 Control Mod1 T :Exec ${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -bg black -fg white
 KEYSEOF
 
-if [ -n "$BROWSER_BIN" ]; then
+if [ -n "$BROWSER_CMD" ]; then
 cat >> "$HOME/.fluxbox/keys" <<KEYSEOF
-# Open browser with Ctrl+Alt+B
-Control Mod1 B :Exec ${BROWSER_BIN} --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage
+# Ctrl+Alt+B = browser
+Control Mod1 B :Exec ${BROWSER_CMD}
 KEYSEOF
 fi
 
 cat >> "$HOME/.fluxbox/keys" <<'KEYSEOF'
 
-# Standard Fluxbox keys
+# Window management
 Mod1 Tab :NextWindow {groups} (workspace=[current])
 Mod1 Shift Tab :PrevWindow {groups} (workspace=[current])
 Mod1 F4 :Close
@@ -299,22 +339,20 @@ Mod1 F9 :Minimize
 Mod1 F10 :Maximize
 Mod1 F5 :KillWindow
 
-# Window movement with Alt+drag
+# Titlebar: drag to move, right-drag to resize
 OnTitlebar Mouse1 :MacroCmd {Raise} {Focus} {StartMoving}
 OnTitlebar Mouse3 :MacroCmd {Raise} {Focus} {StartResizing NearestCorner}
 
-# Right-click desktop for menu
+# Desktop: right-click = menu, scroll = switch workspace
 OnDesktop Mouse3 :RootMenu
-# Middle-click desktop for workspaces
 OnDesktop Mouse2 :WorkspaceMenu
-# Scroll on desktop to change workspace
 OnDesktop Mouse4 :PrevWorkspace
 OnDesktop Mouse5 :NextWorkspace
 
-# Window snapping
-Mod4 Left :MacroCmd {ResizeTo 50% 100%} {MoveTo 0 0 Left}
+# Window snapping (Super+arrow)
+Mod4 Left  :MacroCmd {ResizeTo 50% 100%} {MoveTo 0 0 Left}
 Mod4 Right :MacroCmd {ResizeTo 50% 100%} {MoveTo 0 0 Right}
-Mod4 Up :Maximize
+Mod4 Up    :Maximize
 KEYSEOF
 
 cat > "$HOME/.fluxbox/init" <<'INITEOF'
@@ -336,7 +374,6 @@ session.configVersion: 13
 INITEOF
 
 cat > "$HOME/.Xresources" <<'XREOF'
-! XTerm configuration
 XTerm*faceName: DejaVu Sans Mono
 XTerm*faceSize: 11
 XTerm*background: #1e1e1e
@@ -349,8 +386,6 @@ XTerm*selectToClipboard: true
 XTerm*metaSendsEscape: true
 XTerm*eightBitInput: false
 XTerm*termName: xterm-256color
-
-! Color scheme
 XTerm*color0:  #1e1e1e
 XTerm*color1:  #f44747
 XTerm*color2:  #6a9955
@@ -369,13 +404,12 @@ XTerm*color14: #4ec9b0
 XTerm*color15: #ffffff
 XREOF
 
-echo "   ✅ Fluxbox menu and key bindings configured"
+echo "   ✅ Fluxbox menu, keys, and theme configured"
 
 # Clone noVNC if needed
 if [ ! -d ~/noVNC ]; then
     echo "📦 Cloning noVNC..."
-    # Clone noVNC without proxy (it's a direct github fetch)
-    env -u http_proxy -u https_proxy -u all_proxy \
+    env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
         git clone --depth 1 https://github.com/novnc/noVNC.git ~/noVNC
 fi
 
@@ -386,10 +420,7 @@ sleep 3
 
 # Load Xresources for xterm theming
 if [ -f "$HOME/.Xresources" ]; then
-    XRDB_BIN="$(command -v xrdb 2>/dev/null || true)"
-    if [ -n "$XRDB_BIN" ]; then
-        DISPLAY=:99 "$XRDB_BIN" -merge "$HOME/.Xresources" 2>/dev/null || true
-    fi
+    DISPLAY=:99 xrdb -merge "$HOME/.Xresources" 2>/dev/null || true
 fi
 
 echo "🖥️  Starting Fluxbox..."
@@ -414,6 +445,8 @@ echo ""
 echo "🔐 VPN: ACTIVE (all traffic routed through proxy)"
 echo "   SOCKS5: 127.0.0.1:$SOCKS_PORT | HTTP: 127.0.0.1:$HTTP_PORT"
 fi
+echo ""
+echo "🖥️  Right-click desktop → menu | Ctrl+Alt+T → terminal | Ctrl+Alt+B → browser"
 echo "============================================"
 echo ""
 
@@ -425,12 +458,9 @@ nix build . --impure 2>&1 | grep -v "warning: Git tree" || true
 echo "🚀 Launching Antigravity..."
 echo "   Logging to: $LOG_FILE"
 
-# Final safety check
 pkill -9 -f "antigravity" 2>/dev/null || true
 sleep 1
 
-# Launch with logging
-# Proxy env vars are inherited from the exported environment
 DISPLAY=:99 ./result/bin/antigravity --verbose 2>&1 | \
   grep -v "Failed to connect to the bus" | \
   grep -v "ALSA lib" | \
@@ -441,7 +471,6 @@ echo "$APP_PID" > "$LOCK_FILE"
 
 sleep 3
 
-# Verify it's running
 if ! kill -0 "$APP_PID" 2>/dev/null; then
     echo "   ❌ Antigravity crashed! Check log:"
     tail -20 "$LOG_FILE"
@@ -453,7 +482,6 @@ ANTIGRAVITY_COUNT=$(pgrep -f "antigravity" | wc -l)
 echo "   ✅ Antigravity started (main PID $APP_PID)"
 echo "   📊 Electron processes: $ANTIGRAVITY_COUNT"
 
-# Save PIDs
 echo "$VNC_PID $FLUXBOX_PID $WEBSOCKIFY_PID $APP_PID ${DBUS_PID:-} ${XRAY_PID:-}" > "$PID_FILE"
 
 echo ""
