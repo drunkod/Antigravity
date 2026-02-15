@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc wget unzip xray proxychains-ng curl
+#! nix-shell -i bash -p dejavu_fonts liberation_ttf noto-fonts fontconfig git procps fluxbox tigervnc dbus psmisc wget unzip xray proxychains-ng curl xterm xdotool
 
 export DISPLAY=:99
 export NIXPKGS_ALLOW_UNFREE=1
@@ -212,6 +212,165 @@ else
 fi
 # ============================================================
 
+# ============================================================
+#  Configure Fluxbox menu and key bindings
+# ============================================================
+echo "🖥️  Configuring Fluxbox..."
+mkdir -p "$HOME/.fluxbox"
+
+TERMINAL_BIN="$(command -v xterm 2>/dev/null || true)"
+SHELL_BIN="$(command -v bash 2>/dev/null || command -v sh 2>/dev/null || echo "/bin/sh")"
+BROWSER_BIN="$(
+    command -v chromium 2>/dev/null \
+    || command -v google-chrome 2>/dev/null \
+    || command -v firefox 2>/dev/null \
+    || true
+)"
+
+if [ -z "$TERMINAL_BIN" ]; then
+    echo "   ⚠️  No terminal emulator found in PATH"
+fi
+
+cat > "$HOME/.fluxbox/menu" <<MENUEOF
+[begin] (Antigravity Desktop)
+  [submenu] (Terminal)
+    [exec] (XTerm) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11}
+    [exec] (XTerm - Dark) {${TERMINAL_BIN} -bg black -fg white -fa "DejaVu Sans Mono" -fs 11}
+    [exec] (Bash) {${TERMINAL_BIN} -e ${SHELL_BIN} --login}
+  [end]
+MENUEOF
+
+if [ -n "$BROWSER_BIN" ]; then
+cat >> "$HOME/.fluxbox/menu" <<MENUEOF
+  [submenu] (Web Browser)
+    [exec] ($(basename "$BROWSER_BIN")) {${BROWSER_BIN} --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage}
+  [end]
+MENUEOF
+fi
+
+cat >> "$HOME/.fluxbox/menu" <<MENUEOF
+  [submenu] (Tools)
+    [exec] (File Listing) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'ls -la ~; echo "---"; read -rp "Press Enter..."'}
+    [exec] (Disk Usage) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'df -h; echo "---"; read -rp "Press Enter..."'}
+    [exec] (Processes) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'ps aux; echo "---"; read -rp "Press Enter..."'}
+    [exec] (Network Info) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'echo "Hostname: \$(hostname)"; echo ""; ip addr 2>/dev/null || ifconfig 2>/dev/null; echo "---"; read -rp "Press Enter..."'}
+  [end]
+  [submenu] (VPN)
+    [exec] (VPN Status) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e bash -lc 'cd ~/antigravity && bash status-vnc.sh'}
+    [exec] (Check VPN IP) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -hold -e bash -lc 'echo "Checking IP via proxy..."; curl -s --connect-timeout 5 --proxy socks5h://127.0.0.1:10808 https://ifconfig.me; echo ""; echo "Direct IP:"; curl -s --connect-timeout 5 https://ifconfig.me; echo ""'}
+    [exec] (VPN Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'tail -50f ~/.xray-vpn.log'}
+    [exec] (App Log) {${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -e bash -lc 'tail -50f ~/.antigravity-vnc.log'}
+  [end]
+  [separator]
+  [submenu] (Fluxbox)
+    [workspaces] (Workspaces)
+    [submenu] (Styles)
+      [stylesdir] (/usr/share/fluxbox/styles)
+      [stylesdir] (~/.fluxbox/styles)
+    [end]
+    [config] (Configure)
+    [reconfig] (Reconfigure)
+    [restart] (Restart Fluxbox)
+  [end]
+  [separator]
+  [exit] (Exit Fluxbox)
+[end]
+MENUEOF
+
+cat > "$HOME/.fluxbox/keys" <<KEYSEOF
+# Open terminal with Ctrl+Alt+T
+Control Mod1 T :Exec ${TERMINAL_BIN} -fa "DejaVu Sans Mono" -fs 11 -bg black -fg white
+KEYSEOF
+
+if [ -n "$BROWSER_BIN" ]; then
+cat >> "$HOME/.fluxbox/keys" <<KEYSEOF
+# Open browser with Ctrl+Alt+B
+Control Mod1 B :Exec ${BROWSER_BIN} --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage
+KEYSEOF
+fi
+
+cat >> "$HOME/.fluxbox/keys" <<'KEYSEOF'
+
+# Standard Fluxbox keys
+Mod1 Tab :NextWindow {groups} (workspace=[current])
+Mod1 Shift Tab :PrevWindow {groups} (workspace=[current])
+Mod1 F4 :Close
+Mod1 F9 :Minimize
+Mod1 F10 :Maximize
+Mod1 F5 :KillWindow
+
+# Window movement with Alt+drag
+OnTitlebar Mouse1 :MacroCmd {Raise} {Focus} {StartMoving}
+OnTitlebar Mouse3 :MacroCmd {Raise} {Focus} {StartResizing NearestCorner}
+
+# Right-click desktop for menu
+OnDesktop Mouse3 :RootMenu
+# Middle-click desktop for workspaces
+OnDesktop Mouse2 :WorkspaceMenu
+# Scroll on desktop to change workspace
+OnDesktop Mouse4 :PrevWorkspace
+OnDesktop Mouse5 :NextWorkspace
+
+# Window snapping
+Mod4 Left :MacroCmd {ResizeTo 50% 100%} {MoveTo 0 0 Left}
+Mod4 Right :MacroCmd {ResizeTo 50% 100%} {MoveTo 0 0 Right}
+Mod4 Up :Maximize
+KEYSEOF
+
+cat > "$HOME/.fluxbox/init" <<'INITEOF'
+session.screen0.toolbar.visible: true
+session.screen0.toolbar.placement: BottomCenter
+session.screen0.toolbar.widthPercent: 100
+session.screen0.toolbar.height: 24
+session.screen0.toolbar.tools: prevworkspace, workspacename, nextworkspace, iconbar, systemtray, clock
+session.screen0.workspaces: 4
+session.screen0.workspaceNames: Main,Web,Term,Misc
+session.screen0.tab.placement: TopLeft
+session.screen0.tab.width: 64
+session.screen0.window.focus.alpha: 255
+session.screen0.window.unfocus.alpha: 200
+session.screen0.menu.alpha: 230
+session.menuFile: ~/.fluxbox/menu
+session.keyFile: ~/.fluxbox/keys
+session.configVersion: 13
+INITEOF
+
+cat > "$HOME/.Xresources" <<'XREOF'
+! XTerm configuration
+XTerm*faceName: DejaVu Sans Mono
+XTerm*faceSize: 11
+XTerm*background: #1e1e1e
+XTerm*foreground: #d4d4d4
+XTerm*cursorColor: #ffffff
+XTerm*scrollBar: true
+XTerm*rightScrollBar: true
+XTerm*saveLines: 10000
+XTerm*selectToClipboard: true
+XTerm*metaSendsEscape: true
+XTerm*eightBitInput: false
+XTerm*termName: xterm-256color
+
+! Color scheme
+XTerm*color0:  #1e1e1e
+XTerm*color1:  #f44747
+XTerm*color2:  #6a9955
+XTerm*color3:  #dcdcaa
+XTerm*color4:  #569cd6
+XTerm*color5:  #c586c0
+XTerm*color6:  #4ec9b0
+XTerm*color7:  #d4d4d4
+XTerm*color8:  #808080
+XTerm*color9:  #f44747
+XTerm*color10: #6a9955
+XTerm*color11: #dcdcaa
+XTerm*color12: #569cd6
+XTerm*color13: #c586c0
+XTerm*color14: #4ec9b0
+XTerm*color15: #ffffff
+XREOF
+
+echo "   ✅ Fluxbox menu and key bindings configured"
+
 # Clone noVNC if needed
 if [ ! -d ~/noVNC ]; then
     echo "📦 Cloning noVNC..."
@@ -224,6 +383,14 @@ echo "🚀 Starting VNC Server..."
 Xvnc :99 -geometry 1920x1080 -depth 24 -SecurityTypes None -rfbport 5900 -dpi 96 2>&1 &
 VNC_PID=$!
 sleep 3
+
+# Load Xresources for xterm theming
+if [ -f "$HOME/.Xresources" ]; then
+    XRDB_BIN="$(command -v xrdb 2>/dev/null || true)"
+    if [ -n "$XRDB_BIN" ]; then
+        DISPLAY=:99 "$XRDB_BIN" -merge "$HOME/.Xresources" 2>/dev/null || true
+    fi
+fi
 
 echo "🖥️  Starting Fluxbox..."
 DISPLAY=:99 fluxbox 2>/dev/null &
