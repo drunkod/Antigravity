@@ -1,0 +1,12 @@
+# Local VPN credentials
+v2ray-client.json
+v2ray-client-reality.json
+
+# Runtime artifacts
+*.pid
+*.lock
+*.log
+.xray-proxy.env
+
+# Nix build output
+result

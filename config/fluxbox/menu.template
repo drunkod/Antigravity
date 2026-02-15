@@ -1,0 +1,38 @@
+[begin] (Antigravity Desktop)
+  [submenu] (Terminal)
+    [exec] (XTerm) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 }
+    [exec] (XTerm Dark) { {{TERMINAL_BIN}} -bg black -fg white -fa "DejaVu Sans Mono" -fs 11 }
+    [exec] (XTerm Large) { {{TERMINAL_BIN}} -bg black -fg green -fa "DejaVu Sans Mono" -fs 14 }
+    [exec] (Bash Login) { {{TERMINAL_BIN}} -e {{SHELL_BIN}} --login }
+  [end]
+  [submenu] (Web Browser)
+    [exec] (Chromium) { {{BROWSER_CMD}} }
+    [exec] (Chromium - google.com) { {{BROWSER_CMD}} https://www.google.com }
+    [exec] (Chromium - check IP) { {{BROWSER_CMD}} https://ifconfig.me }
+  [end]
+  [submenu] (Tools)
+    [exec] (File Listing) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -e {{SHELL_BIN}} -lc 'ls -la ~; echo "---"; read -rp "Press Enter..."' }
+    [exec] (Disk Usage) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -e {{SHELL_BIN}} -lc 'df -h; echo "---"; read -rp "Press Enter..."' }
+    [exec] (Processes) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -e {{SHELL_BIN}} -lc 'ps aux; echo "---"; read -rp "Press Enter..."' }
+    [exec] (Network Info) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -e {{SHELL_BIN}} -lc 'echo "Hostname: $(hostname)"; echo; ip addr 2>/dev/null || ifconfig 2>/dev/null; echo "---"; read -rp "Press Enter..."' }
+  [end]
+  [submenu] (VPN)
+    [exec] (VPN Status) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -hold -e {{SHELL_BIN}} -lc 'cd {{SCRIPT_DIR}} && {{SHELL_BIN}} status-vnc.sh' }
+    [exec] (Check VPN IP) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -hold -e {{SHELL_BIN}} -lc 'echo "=== VPN IP ==="; curl -s --connect-timeout 5 --proxy socks5h://127.0.0.1:{{SOCKS_PORT}} https://ifconfig.me 2>/dev/null || echo FAILED; echo; echo "=== Direct IP ==="; env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo FAILED; echo' }
+    [exec] (VPN Log) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -e {{SHELL_BIN}} -lc 'tail -50f {{VPN_LOG_FILE}}' }
+    [exec] (App Log) { {{TERMINAL_BIN}} -fa "DejaVu Sans Mono" -fs 11 -e {{SHELL_BIN}} -lc 'tail -50f {{LOG_FILE}}' }
+  [end]
+  [separator]
+  [submenu] (Fluxbox)
+    [workspaces] (Workspaces)
+    [submenu] (Styles)
+      [stylesdir] (/usr/share/fluxbox/styles)
+      [stylesdir] (~/.fluxbox/styles)
+    [end]
+    [config] (Configure)
+    [reconfig] (Reconfigure)
+    [restart] (Restart Fluxbox)
+  [end]
+  [separator]
+  [exit] (Exit Fluxbox)
+[end]

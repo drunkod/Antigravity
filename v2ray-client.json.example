@@ -58,11 +58,11 @@
       "settings": {
         "vnext": [
           {
-            "address": "us-warp-9764176-clone87844.mircloud.us",
+            "address": "YOUR_SERVER_ADDRESS",
             "port": 8080,
             "users": [
               {
-                "id": "f74ac10b-58cc-4372-a567-0e02b2c3d479",
+                "id": "YOUR-UUID-HERE",
                 "alterId": 0,
                 "security": "auto"
               }
@@ -76,7 +76,7 @@
         "wsSettings": {
           "path": "/v2ray-endpoint",
           "headers": {
-            "Host": "us-warp-9764176-clone87844.mircloud.us"
+            "Host": "YOUR_SERVER_ADDRESS"
           }
         }
       },
@@ -122,7 +122,7 @@
         "domain": [
           "localhost",
           "domain:local",
-          "domain:cluster-iusnsmywp5clov45nv5gsxt5he.cloudworkstations.dev"
+          "domain:YOUR_WORKSTATION_DOMAIN"
         ]
       },
       {

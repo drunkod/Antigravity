@@ -1,143 +1,72 @@
 #!/usr/bin/env bash
 
-PID_FILE="$HOME/.antigravity-vnc.pid"
-LOCK_FILE="$HOME/.antigravity-vnc.lock"
-VPN_PID_FILE="$HOME/.xray-vpn.pid"
-PROXY_ENV_FILE="$HOME/.xray-proxy.env"
-XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-$USER}"
+set -euo pipefail
 
-# Pattern that matches the Electron app but NOT xray or this script
-APP_PATTERN="bin/antigravity"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./config.env
+source "$SCRIPT_DIR/config.env"
+# shellcheck source=./lib.sh
+source "$SCRIPT_DIR/lib.sh"
 
 echo "🧹 Stopping Antigravity VNC services..."
 
-# 1. Kill antigravity app processes first (NOT xray!)
-ANTIGRAVITY_PIDS=$(pgrep -f "$APP_PATTERN" || true)
-if [ -n "$ANTIGRAVITY_PIDS" ]; then
-    echo "   Stopping Antigravity app..."
-    pkill -15 -f "$APP_PATTERN" 2>/dev/null || true
-    sleep 2
-    pkill -9 -f "$APP_PATTERN" 2>/dev/null || true
-fi
+kill_by_pattern "$APP_PATTERN" 2
 
-# 2. Stop services from PID file if it exists
 if [ -f "$PID_FILE" ]; then
     read -r VNC_PID FLUXBOX_PID WEBSOCKIFY_PID APP_PID DBUS_PID XRAY_PID < "$PID_FILE" 2>/dev/null || true
 
-    for name_pid in "noVNC:${WEBSOCKIFY_PID:-}" "Fluxbox:${FLUXBOX_PID:-}" "VNC:${VNC_PID:-}" "DBus:${DBUS_PID:-}" "Xray:${XRAY_PID:-}"; do
-        name="${name_pid%%:*}"
-        pid="${name_pid##*:}"
-
-        if [ -n "$pid" ] && [ "$pid" != "" ]; then
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "   Stopping $name (PID $pid)"
-                kill "$pid" 2>/dev/null || true
-            fi
-        fi
-    done
-
-    sleep 1
-
-    for pid in ${WEBSOCKIFY_PID:-} ${FLUXBOX_PID:-} ${VNC_PID:-} ${DBUS_PID:-} ${XRAY_PID:-}; do
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            kill -9 "$pid" 2>/dev/null || true
-        fi
+    for pid in "${APP_PID:-}" "${WEBSOCKIFY_PID:-}" "${FLUXBOX_PID:-}" "${VNC_PID:-}" "${DBUS_PID:-}" "${XRAY_PID:-}"; do
+        kill_by_pid "$pid" 1
     done
 fi
 
-# 3. Stop Xray VPN from its own PID file
-if [ -f "$VPN_PID_FILE" ]; then
-    XRAY_VPN_PID=$(cat "$VPN_PID_FILE" 2>/dev/null || echo "")
-    if [ -n "$XRAY_VPN_PID" ] && kill -0 "$XRAY_VPN_PID" 2>/dev/null; then
-        echo "   Stopping Xray VPN (PID $XRAY_VPN_PID)"
-        kill "$XRAY_VPN_PID" 2>/dev/null || true
-        sleep 1
-        kill -9 "$XRAY_VPN_PID" 2>/dev/null || true
-    fi
-    rm -f "$VPN_PID_FILE"
-fi
+SERVICES=(
+    "Antigravity:$APP_PATTERN"
+    "websockify:websockify.*${NOVNC_PORT}"
+    "Fluxbox:fluxbox"
+    "Xvnc:Xvnc :${DISPLAY_NUM}"
+    "DBus:dbus-daemon.*${XDG_RUNTIME_DIR}"
+)
 
-# 4. FALLBACK: Kill by process name
-echo "   Checking for remaining processes..."
+for service in "${SERVICES[@]}"; do
+    kill_by_pattern "${service#*:}" 1
+done
 
-WEBSOCKIFY_PIDS=$(pgrep -f "websockify.*5999" || true)
-if [ -n "$WEBSOCKIFY_PIDS" ]; then
-    echo "   Stopping websockify (PIDs: $WEBSOCKIFY_PIDS)"
-    pkill -9 -f "websockify.*5999" 2>/dev/null || true
-fi
+"$SCRIPT_DIR/stop-vpn.sh" >/dev/null 2>&1 || true
 
-FLUXBOX_PIDS=$(pgrep fluxbox || true)
-if [ -n "$FLUXBOX_PIDS" ]; then
-    echo "   Stopping Fluxbox (PIDs: $FLUXBOX_PIDS)"
-    pkill -9 fluxbox 2>/dev/null || true
-fi
-
-XVNC_PIDS=$(pgrep -f "Xvnc :99" || true)
-if [ -n "$XVNC_PIDS" ]; then
-    echo "   Stopping Xvnc (PIDs: $XVNC_PIDS)"
-    pkill -9 -f "Xvnc :99" 2>/dev/null || true
-fi
-
-XRAY_PIDS=$(pgrep -f "xray run" || true)
-if [ -n "$XRAY_PIDS" ]; then
-    echo "   Stopping Xray (PIDs: $XRAY_PIDS)"
-    pkill -9 -f "xray run" 2>/dev/null || true
-fi
-
-# Kill remaining antigravity processes (safe pattern)
-REMAINING_APP=$(pgrep -f "$APP_PATTERN" || true)
-if [ -n "$REMAINING_APP" ]; then
-    echo "   Stopping remaining app (PIDs: $REMAINING_APP)"
-    pkill -9 -f "$APP_PATTERN" 2>/dev/null || true
-fi
-
-DBUS_PIDS=$(pgrep -f "dbus-daemon.*$XDG_RUNTIME_DIR" || true)
-if [ -n "$DBUS_PIDS" ]; then
-    echo "   Stopping DBus daemons (PIDs: $DBUS_PIDS)"
-    pkill -9 -f "dbus-daemon.*$XDG_RUNTIME_DIR" 2>/dev/null || true
-fi
-
-# Cleanup
 rm -f "$XDG_RUNTIME_DIR/bus" 2>/dev/null || true
-rm -f "$PROXY_ENV_FILE" 2>/dev/null || true
 rm -f "$PID_FILE" "$LOCK_FILE"
+rm -f "$PROXY_ENV_FILE"
+clear_proxy_vars
 
-unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null || true
-unset all_proxy ALL_PROXY no_proxy NO_PROXY 2>/dev/null || true
-unset PROXY_SOCKS5 PROXY_HTTP 2>/dev/null || true
-
-# 5. Final verification
 sleep 1
 
 echo ""
 echo "🔍 Verification:"
 
-check_process() {
-    local name="$1"
-    local pattern="$2"
-    local pids=$(pgrep -f "$pattern" 2>/dev/null || true)
-    if [ -n "$pids" ]; then
-        echo "   ⚠️  $name still running: $pids"
-        return 1
+ALL_STOPPED=true
+for service in "${SERVICES[@]}"; do
+    name="${service%%:*}"
+    pattern="${service#*:}"
+
+    if pgrep -f "$pattern" >/dev/null 2>&1; then
+        echo "   ⚠️  $name still running: $(pgrep -f "$pattern" | tr '\n' ' ')"
+        ALL_STOPPED=false
     else
         echo "   ✅ $name stopped"
-        return 0
     fi
-}
+done
 
-ALL_STOPPED=true
-
-check_process "Antigravity" "$APP_PATTERN" || ALL_STOPPED=false
-check_process "websockify " "websockify.*5999" || ALL_STOPPED=false
-check_process "Fluxbox    " "fluxbox" || ALL_STOPPED=false
-check_process "Xvnc       " "Xvnc :99" || ALL_STOPPED=false
-check_process "Xray VPN   " "xray run" || ALL_STOPPED=false
-check_process "DBus       " "dbus-daemon.*$XDG_RUNTIME_DIR" || ALL_STOPPED=false
+if pgrep -f "xray run" >/dev/null 2>&1; then
+    echo "   ⚠️  Xray still running: $(pgrep -f "xray run" | tr '\n' ' ')"
+    ALL_STOPPED=false
+else
+    echo "   ✅ Xray stopped"
+fi
 
 echo ""
 if [ "$ALL_STOPPED" = true ]; then
     echo "✅ All services stopped successfully"
 else
     echo "⚠️  Some services are still running"
-    echo "   Try: kill -9 <pid>"
 fi

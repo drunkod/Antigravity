@@ -1,0 +1,325 @@
+# Refactoring TODO
+
+## Overview
+
+The codebase is a set of Nix + Bash scripts that launch an Electron app ("Antigravity") inside a VNC desktop with optional VPN proxying. The main problems are: **a 400-line monolith launcher**, **massive duplication**, **hardcoded values everywhere**, and **no separation of concerns**.
+
+---
+
+## 1. Extract Shared Configuration
+
+**Problem:** Ports, paths, display number, URLs, PID file locations, and process patterns are hardcoded and duplicated across every script.
+
+**Files affected:** `start-with-vnc.sh`, `stop-vnc.sh`, `status-vnc.sh`, `start-vpn.sh`, `stop-vpn.sh`
+
+### Tasks
+
+- [x] **Create `config.env`** — single source of truth for all shared constants:
+  ```bash
+  DISPLAY_NUM=99
+  VNC_PORT=5900
+  NOVNC_PORT=5999
+  SOCKS_PORT=10808
+  HTTP_PORT=10809
+  APP_PATTERN="bin/antigravity"
+  PID_FILE="$HOME/.antigravity-vnc.pid"
+  LOCK_FILE="$HOME/.antigravity-vnc.lock"
+  LOG_FILE="$HOME/.antigravity-vnc.log"
+  VPN_PID_FILE="$HOME/.xray-vpn.pid"
+  VPN_LOG_FILE="$HOME/.xray-vpn.log"
+  PROXY_ENV_FILE="$HOME/.xray-proxy.env"
+  BROWSER_CMD="$HOME/.local/bin/browser"
+  NOVNC_URL="https://5999-firebase-antigravity-....cloudworkstations.dev/vnc.html"
+  ```
+- [x] **Source `config.env`** at the top of every script instead of re-declaring variables.
+- [x] Remove all duplicate variable declarations from individual scripts.
+
+---
+
+## 2. Create a Shared Library (`lib.sh`)
+
+**Problem:** Helper logic (process checking, killing, proxy env generation) is copy-pasted across scripts with slight variations.
+
+### Tasks
+
+- [x] **Extract `check_process(name, pattern)`** — used identically in `stop-vnc.sh` and `status-vnc.sh`:
+  ```bash
+  check_process() {
+      local name="$1" pattern="$2"
+      local pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+      if [ -n "$pids" ]; then
+          echo "✅ $name: running ($pids)"
+          return 0
+      else
+          echo "❌ $name: not running"
+          return 1
+      fi
+  }
+  ```
+- [x] **Extract `kill_by_pattern(pattern)`** — graceful SIGTERM → sleep → SIGKILL pattern is repeated ~5 times across `start-with-vnc.sh`, `stop-vnc.sh`, `start-vpn.sh`:
+  ```bash
+  kill_by_pattern() {
+      local pattern="$1" timeout="${2:-2}"
+      pkill -15 -f "$pattern" 2>/dev/null || true
+      sleep "$timeout"
+      pkill -9 -f "$pattern" 2>/dev/null || true
+  }
+  ```
+- [x] **Extract `kill_by_pid(pid)`** — same SIGTERM→SIGKILL dance done per-PID in `stop-vnc.sh` and `stop-vpn.sh`.
+- [x] **Extract `write_proxy_env(socks_port, http_port, file)`** — the proxy env block is written identically in `start-with-vnc.sh` (inline) and `start-vpn.sh`:
+  ```bash
+  write_proxy_env() {
+      local socks="$1" http="$2" file="$3"
+      cat > "$file" <<EOF
+  export http_proxy="http://127.0.0.1:$http"
+  ...
+  EOF
+  }
+  ```
+- [x] **Extract `export_proxy_vars(socks_port, http_port)`** — setting proxy env vars in current shell, done identically in two places.
+- [x] **Extract `test_vpn_connection(socks_port)`** — the curl-based IP comparison test is duplicated between `start-with-vnc.sh`, `start-vpn.sh`, and `status-vnc.sh`.
+- [x] Source `lib.sh` from all scripts.
+
+---
+
+## 3. Break Up `start-with-vnc.sh` (The Monolith)
+
+**Problem:** `start-with-vnc.sh` is ~400 lines doing 10+ unrelated things sequentially. Any failure mid-script leaves partial state. Individual pieces can't be restarted independently.
+
+### Tasks
+
+- [x] **Extract `scripts/setup-fonts.sh`** — the `nix-build` fontconfig block (~10 lines).
+- [x] **Extract `scripts/setup-dbus.sh`** — DBus session startup (~25 lines). Return/export `DBUS_SESSION_BUS_ADDRESS` and `DBUS_PID`.
+- [x] **Extract `scripts/setup-gpu-env.sh`** — GPU/Vulkan/ALSA environment disabling (~8 `export` lines). Could just be a `gpu-env.sh` that's sourced.
+- [x] **Extract `scripts/setup-fluxbox.sh`** — Fluxbox menu, keys, init, and Xresources generation (~150 lines). This is the single biggest chunk.
+- [x] **Extract `scripts/start-vnc-server.sh`** — Xvnc + xrdb + Fluxbox + noVNC startup (~25 lines).
+- [x] **Extract VPN startup into `start-vpn.sh`** — `start-with-vnc.sh` already has `start-vpn.sh` as a standalone, but duplicates all its logic inline. **Reuse `start-vpn.sh` instead of inlining ~80 lines of VPN code.**
+- [x] **Extract `scripts/build-app.sh`** — `nix build` + browser symlink setup (~20 lines).
+- [x] **Extract `scripts/launch-app.sh`** — the actual Antigravity launch + PID tracking (~20 lines).
+- [x] **Refactor `start-with-vnc.sh`** to be a thin orchestrator:
+  ```bash
+  source config.env
+  source lib.sh
+  cleanup_existing
+  scripts/setup-fonts.sh
+  scripts/setup-dbus.sh
+  scripts/setup-gpu-env.sh
+  ./start-vpn.sh          # reuse existing script
+  scripts/setup-fluxbox.sh
+  scripts/start-vnc-server.sh
+  scripts/build-app.sh
+  scripts/launch-app.sh
+  save_all_pids
+  print_summary
+  ```
+
+---
+
+## 4. Eliminate Chromium Flag Duplication in `flake.nix`
+
+**Problem:** The same ~15 Chromium flags are copy-pasted 3 times (google-chrome wrapper, xdg-open wrapper, and `wrapProgram` add-flags).
+
+### Tasks
+
+- [x] **Define flags once** as a Nix variable:
+  ```nix
+  chromiumFlags = builtins.concatStringsSep " " [
+    "--no-sandbox"
+    "--disable-gpu"
+    "--disable-gpu-compositing"
+    # ...
+  ];
+  ```
+- [x] **Generate google-chrome and xdg-open from one template** or make xdg-open a symlink to google-chrome (they're already identical).
+- [x] **Deduplicate the browser alias symlinks** — the `for name in ...` loop is fine, but the two wrapper scripts above it should be one.
+- [x] Consider whether `wrapProgram --add-flags` for antigravity itself is even needed since the wrapper already handles it.
+
+---
+
+## 5. Externalize Desktop Config Files
+
+**Problem:** ~150 lines of Fluxbox menu XML, keybindings, init config, and Xresources are generated inline inside `start-with-vnc.sh` using heredocs. This is hard to read, edit, and maintain.
+
+### Tasks
+
+- [x] **Create `config/fluxbox/menu.template`** — with `{{TERMINAL_BIN}}`, `{{BROWSER_CMD}}`, `{{SHELL_BIN}}` placeholders.
+- [x] **Create `config/fluxbox/keys.template`** — with `{{TERMINAL_BIN}}`, `{{BROWSER_CMD}}` placeholders.
+- [x] **Create `config/fluxbox/init`** — this one has no variables; ship it as-is.
+- [x] **Create `config/Xresources`** — static file, no reason to generate it.
+- [x] **Write a small `render_template()`** function in `lib.sh` that does `sed` substitution and copies files to `~/.fluxbox/`.
+- [x] Remove all inline heredocs from `start-with-vnc.sh`.
+
+---
+
+## 6. Fix VPN Code Duplication Between `start-with-vnc.sh` and `start-vpn.sh`
+
+**Problem:** `start-with-vnc.sh` contains ~80 lines of VPN startup logic that is a near-duplicate of `start-vpn.sh`. They diverge slightly (the VNC version writes proxy vars inline, the standalone version writes a file with comments).
+
+### Tasks
+
+- [x] **Make `start-vpn.sh` the single VPN entry point**, callable from `start-with-vnc.sh`.
+- [x] Have `start-vpn.sh` output machine-readable status (exit code + env file) so the caller can check success.
+- [x] In `start-with-vnc.sh`, replace the entire VPN block with:
+  ```bash
+  if [ -f "$VPN_CONFIG" ]; then
+      ./start-vpn.sh "$VPN_CONFIG" && source "$PROXY_ENV_FILE"
+  fi
+  ```
+- [x] Remove the duplicated proxy env var exports, proxy env file writing, and connectivity test from `start-with-vnc.sh`.
+
+---
+
+## 7. Consolidate Stop Logic
+
+**Problem:** `stop-vnc.sh` has 4 phases of kill logic (app processes, PID file, VPN PID file, fallback pattern kills) with significant duplication and defensive coding that could be simplified with `lib.sh`.
+
+### Tasks
+
+- [x] **Use `lib.sh` kill helpers** — replace ~50 lines of per-process kill/check blocks.
+- [x] **Merge VPN stopping** — `stop-vnc.sh` kills Xray; `stop-vpn.sh` also kills Xray. Have `stop-vnc.sh` call `./stop-vpn.sh` instead of reimplementing it.
+- [x] **Simplify fallback kills** — the fallback "kill by pattern" section re-checks everything the PID-file section already tried. Combine into one pass.
+- [x] **Extract service list** as data rather than code:
+  ```bash
+  SERVICES=(
+      "Antigravity:$APP_PATTERN"
+      "websockify:websockify.*$NOVNC_PORT"
+      "Fluxbox:fluxbox"
+      "Xvnc:Xvnc :$DISPLAY_NUM"
+  )
+  for svc in "${SERVICES[@]}"; do
+      kill_by_pattern "${svc#*:}"
+  done
+  ```
+
+---
+
+## 8. Add Proper Error Handling
+
+**Problem:** `start-with-vnc.sh` has no `set -e` or traps. If Xvnc fails to start, the script happily continues launching Fluxbox against a dead display. `start-vpn.sh` has `set -euo pipefail` but the others don't.
+
+### Tasks
+
+- [x] **Add `set -euo pipefail`** to all scripts.
+- [x] **Add a cleanup trap** to `start-with-vnc.sh`:
+  ```bash
+  trap 'echo "❌ Script failed at line $LINENO"; ./stop-vnc.sh' ERR
+  ```
+- [x] **Add health checks after each service start** — verify Xvnc is actually listening before starting Fluxbox, verify Fluxbox is running before building the app, etc.
+- [x] **Add timeout to noVNC clone** — the `git clone` has no timeout and will hang forever if network is down.
+- [x] **Validate `nix build` succeeded** before trying to use `./result/bin/antigravity`.
+
+---
+
+## 9. Security: Remove Credentials from Version Control
+
+**Problem:** `v2ray-client.json` contains real server addresses and UUIDs. This file is in the repo.
+
+### Tasks
+
+- [x] **Add `v2ray-client.json` to `.gitignore`**.
+- [x] **Rename the existing file** to `v2ray-client.json.example` with placeholder values.
+- [x] **Add a setup step** that checks for the config and gives clear instructions:
+  ```bash
+  if [ ! -f v2ray-client.json ]; then
+      echo "Copy v2ray-client.json.example to v2ray-client.json and fill in your server details"
+      exit 1
+  fi
+  ```
+- [x] Consider using environment variables or a secrets manager for sensitive values.
+
+---
+
+## 10. Hardcoded Cloud Workstation URL
+
+**Problem:** The noVNC URL `https://5999-firebase-antigravity-1763533608633.cluster-iusnsmywp5clov45nv5gsxt5he.cloudworkstations.dev/vnc.html` is hardcoded in `start-with-vnc.sh`, `status-vnc.sh`, and `v2ray-client.json` routing rules.
+
+### Tasks
+
+- [x] **Move URL to `config.env`** as `NOVNC_URL`.
+- [x] **Auto-detect if possible** — derive from `$HOSTNAME` or `$CLOUD_WORKSTATION_*` env vars.
+- [x] **Move the routing domain** in `v2ray-client.json` to a variable or document that it must be updated when the workstation changes.
+
+---
+
+## 11. Improve `flake.nix` Structure
+
+**Problem:** The entire flake is one deeply-nested expression with inline shell scripts.
+
+### Tasks
+
+- [x] **Extract the Chrome/xdg-open wrapper script** to a separate file (`wrappers/google-chrome.sh`) and use `builtins.readFile` or `substituteAll`.
+- [x] **Extract `terminalDeps`** into a named let-binding for clarity.
+- [x] **Add `devShells`** output so developers can `nix develop` to get a shell with all dependencies instead of using `nix-shell` shebangs.
+- [x] **Consider replacing `nix-shell` shebangs** in scripts with a proper devShell — the `#! nix-shell` line in `start-with-vnc.sh` pulls ~15 packages every time.
+
+---
+
+## 12. Minor Cleanup
+
+- [x] **Remove dead code:** `PORTS_OK=true` in `start-vpn.sh` is set but never read.
+- [x] **Fix inconsistent quoting:** some `$PROXY_ARGS` expansions are intentionally unquoted (word splitting for flags), but this should be done with arrays instead.
+- [x] **Standardize logging:** some scripts use emoji prefixes, some don't. Create `log_info()`, `log_success()`, `log_warn()`, `log_error()` in `lib.sh`.
+- [x] **Add `#!/usr/bin/env bash`** to all scripts consistently (some use it, `status-vnc.sh` already does, but `start-with-vnc.sh` uses `nix-shell` shebang).
+- [x] **Add a `Makefile` or `justfile`** as a task runner so users don't need to remember script names:
+  ```
+  just start    # start-with-vnc.sh
+  just stop     # stop-vnc.sh
+  just status   # status-vnc.sh
+  just vpn      # start-vpn.sh
+  just vpn-stop # stop-vpn.sh
+  ```
+
+---
+
+## Proposed Final Directory Structure
+
+```
+antigravity/
+├── config.env                        # All shared constants
+├── lib.sh                            # Shared functions
+├── flake.nix                         # Cleaned up, no inline scripts
+├── wrappers/
+│   └── google-chrome.sh              # Browser wrapper template
+├── config/
+│   ├── fluxbox/
+│   │   ├── menu.template
+│   │   ├── keys.template
+│   │   └── init
+│   ├── Xresources
+│   └── proxychains.conf
+├── scripts/
+│   ├── setup-fonts.sh
+│   ├── setup-dbus.sh
+│   ├── setup-gpu-env.sh
+│   ├── setup-fluxbox.sh
+│   ├── start-vnc-server.sh
+│   ├── build-app.sh
+│   └── launch-app.sh
+├── start-with-vnc.sh                 # Thin orchestrator (~50 lines)
+├── stop-vnc.sh                       # Uses lib.sh + calls stop-vpn.sh
+├── status-vnc.sh                     # Uses lib.sh
+├── start-vpn.sh                      # Single VPN entry point
+├── stop-vpn.sh                       # Uses lib.sh
+├── v2ray-client.json.example         # Template with placeholders
+├── v2ray-client-reality.json.example
+├── .gitignore                        # v2ray-client.json, *.pid, *.log
+└── justfile                          # Task runner
+```
+
+---
+
+## Priority Order
+
+| Priority | Item | Impact |
+|----------|------|--------|
+| 🔴 P0 | **#9 — Remove credentials from VCS** | Security |
+| 🟠 P1 | **#1 + #2 — config.env + lib.sh** | Foundation for everything else |
+| 🟠 P1 | **#3 — Break up monolith** | Maintainability |
+| 🟡 P2 | **#6 — Deduplicate VPN logic** | DRY |
+| 🟡 P2 | **#4 — Deduplicate Chromium flags** | DRY |
+| 🟡 P2 | **#7 — Consolidate stop logic** | DRY |
+| 🟢 P3 | **#5 — Externalize desktop configs** | Readability |
+| 🟢 P3 | **#8 — Error handling** | Robustness |
+| 🟢 P3 | **#10 — Hardcoded URL** | Portability |
+| ⚪ P4 | **#11 — flake.nix structure** | Nix best practices |
+| ⚪ P4 | **#12 — Minor cleanup** | Polish |
